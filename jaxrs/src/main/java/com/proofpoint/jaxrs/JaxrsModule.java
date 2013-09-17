@@ -46,5 +46,6 @@ public class JaxrsModule implements Module
 
         newMapBinder(binder, String.class, String.class, TheServlet.class)
                 .addBinding(JERSEY_SPI_CONTAINER_CONTAINER_REQUEST_FILTERS)
-                .toInstance(OverrideMethodFilter.class.getName());    }
+                .toInstance(OverrideMethodFilter.class.getName());
+    }
 }
