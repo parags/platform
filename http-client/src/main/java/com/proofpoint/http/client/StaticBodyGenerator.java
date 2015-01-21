@@ -15,6 +15,8 @@
  */
 package com.proofpoint.http.client;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
 import java.io.OutputStream;
 import java.nio.charset.Charset;
 
@@ -32,9 +34,15 @@ public class StaticBodyGenerator implements BodyGenerator
 
     private final byte[] body;
 
-    private StaticBodyGenerator(byte[] body)
+    protected StaticBodyGenerator(byte[] body)
     {
         this.body = body;
+    }
+
+    @SuppressFBWarnings("EI_EXPOSE_REP")
+    public byte[] getBody()
+    {
+        return body;
     }
 
     @Override

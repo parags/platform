@@ -2,7 +2,6 @@ package com.proofpoint.stats;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.base.Ticker;
@@ -13,6 +12,8 @@ import com.google.common.collect.Multimaps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.PeekingIterator;
 import com.google.common.util.concurrent.AtomicDouble;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import org.openjdk.jol.info.ClassLayout;
 
 import javax.annotation.concurrent.NotThreadSafe;
 import java.io.DataInput;
@@ -24,10 +25,12 @@ import java.util.Collection;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static com.google.common.base.Objects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.String.format;
@@ -829,7 +832,7 @@ public class QuantileDigest
                 min == other.min &&
                 max == other.max &&
                 weightedCount == other.weightedCount &&
-                Objects.equal(root, other.root));
+                Objects.equals(root, other.root));
     }
 
     private void rescaleToCommonLandmark(QuantileDigest one, QuantileDigest two)
@@ -935,6 +938,7 @@ public class QuantileDigest
                 "Found a linear chain of zero-weight nodes");
     }
 
+    @SuppressFBWarnings(value = "VA_FORMAT_STRING_USES_NEWLINE", justification = "don't care")
     public String toGraphviz()
     {
         StringBuilder builder = new StringBuilder();
@@ -1104,7 +1108,7 @@ public class QuantileDigest
         public Node getSingleChild()
         {
             checkState(hasSingleChild(), "Node does not have a single child");
-            return Objects.firstNonNull(left, right);
+            return firstNonNull(left, right);
         }
 
         public long getUpperBound()
@@ -1148,7 +1152,7 @@ public class QuantileDigest
         @Override
         public int hashCode()
         {
-            return Objects.hashCode(weightedCount, level, bits, left, right);
+            return Objects.hash(weightedCount, level, bits, left, right);
         }
 
         @Override
@@ -1161,11 +1165,11 @@ public class QuantileDigest
                 return false;
             }
             final Node other = (Node) obj;
-            return Objects.equal(this.weightedCount, other.weightedCount) &&
-                    Objects.equal(this.level, other.level) &&
-                    Objects.equal(this.bits, other.bits) &&
-                    Objects.equal(this.left, other.left) &&
-                    Objects.equal(this.right, other.right);
+            return Objects.equals(this.weightedCount, other.weightedCount) &&
+                    Objects.equals(this.level, other.level) &&
+                    Objects.equals(this.bits, other.bits) &&
+                    Objects.equals(this.left, other.left) &&
+                    Objects.equals(this.right, other.right);
         }
     }
 
@@ -1186,8 +1190,8 @@ public class QuantileDigest
 
         public static final int DOUBLE = 8;
 
-        public static final int QUANTILE_DIGEST = UnsafeUtil.sizeOf(QuantileDigest.class);
-        public static final int NODE = UnsafeUtil.sizeOf(Node.class);
+        public static final int QUANTILE_DIGEST = ClassLayout.parseClass(QuantileDigest.class).instanceSize();
+        public static final int NODE = ClassLayout.parseClass(Node.class).instanceSize();
     }
 
     private static class Flags

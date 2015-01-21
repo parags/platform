@@ -1,3 +1,578 @@
+Platform 1.10
+
+* [Bug] NPE if config class bound both with and without a config prefix.
+
+* [Bug] DiscoveryBinder.bindDiscoveredHttpClient() exporting HttpClient
+  metrics with wrong name.
+
+Platform 1.09
+
+* Deprecated APIs removed
+
+  - Bootstrap public constructors
+  - ConfigAssertions.assertDefaults()
+  - ConfigAssertions.assertDeprecatedEquivalence()
+  - "node.binary-spec" and "node.config-spec" configuration options
+  - MeterStat
+  - TimedStat
+  - Duration.convertTo()
+
+* Guava 17 compatibility
+
+  We reverted use of features preventing running with Guava 17.
+
+* Library upgrades
+
+  - slf4j to 1.7.8
+
+Platform 1.08
+
+* Configuration module defaults
+
+  Guice modules may now override default configuration values by implementing
+  ConfigurationDefaultingModule.getConfigurationDefaults(). Such defaults
+  override those in the config classes but are themselves overridden by
+  Bootstrap.withApplicationDefaults().
+
+* AsyncSemaphore
+
+  AsyncSemaphore is a non-blocking concurrency throttler for asynchronous
+  tasks. It guarantees that no more than a fixed number of asynchronous tasks
+  will be outstanding at any point in time without blocking any submission
+  threads. Task completion is determined by a ListenableFuture returned by the
+  supplied submitter function.
+
+* Discovery read timeout
+
+  We reduced the discovery client's default read timeout to 5 seconds. This
+  is to avoid announcements timing out of Discovery when one or more
+  Discovery servers hang.
+
+* HttpClient request queue size default change
+
+  We reduced the http-client.max-requests-queued-per-destination default to
+  20. We recommend this be set to the same value as
+  http-client.max-connections-per-server as larger values can cause requests
+  to queue for inordinate amounts of time.
+
+* Stack traces in HTTP error responses
+
+  The HTTP server now shows stack traces in error responses if
+  "http-server.show-stack-trace" is set to "true".
+
+* Node ID logged on startup
+
+* [Bug] HttpClient metric names now start with "HttpClient" instead of
+  "AsyncHttpClient".
+
+* [Bug] Fixed JettyHttpClient IllegalStateException when handling an exception
+  thrown from a BodyGenerator.
+
+* Library upgrades
+
+  - Jetty to 9.2.6
+
+Platform 1.07
+
+* AbstractConfigurationAwareModule
+
+  Extending this module makes it easy to access configuration at binding time,
+  which allows conditionally installing modules or bindings based on config.
+
+* Library upgrades
+
+  - Jetty to 9.2.3
+  - slf4j to 1.7.7
+  - logback to 1.1.2
+  - Jackson to 2.4.3
+  - Jersey to 2.13
+  - Joda-time to 2.5
+  - Mockito to 1.10.8
+  - cglib to 3.1
+
+Platform 1.06
+
+* SSLv3 disabled in both http-client and http-server
+
+* AutoValue support
+
+  The libarary pom now specifies a version and excludes for Google AutoValue.
+  Google AutoValue <https://github.com/google/auto/tree/master/value> simplifies
+  the creation of immutable value classes.
+
+  The sample server has been updated to demonstrate AutoValue.
+
+* Smile support in http-client
+
+  We added SmileBodyMapper, SmileResponseHandler, and
+  FullSmileResponseHandler classes to the http-client sub-project.
+
+* SetThreadName
+
+  The SetThreadName class takes advantage of try-with-resources to safely rename a
+  thread and restore its original name when it goes out of scope.
+
+  Here's a usage example:
+
+      try (SetThreadName ignored = new SetThreadName("query-%s", queryId)) {
+          ...
+      }
+
+* Rack moved to separate project
+
+  We moved the rack packaging support into the platform-rack project.
+
+* We changed the Logger API to work directly against Java's built-in logging APIs.
+
+* HttpClient
+
+  - Name and group Jetty HTTP client threads
+  - Always use daemon threads in HTTP client
+  - Add getResponseBytes() and getResponseBody() to FullJsonResponseHandler
+
+* We added Announcer.forceAnnounce() to immediately send a discovery announcement.
+
+* We added more utility methods to Closeables
+
+* We changed Duration.nanosSince() to convert to the most succinct unit.
+
+* Library upgrades
+  - Guava to 18.0
+
+Platform 1.05
+
+* Findbugs run by default
+
+  Findbugs is now hooked into the verify lifecycle phase. (The previous
+  attempt was missing a step.) Failing the build on Findbugs failures is
+  now disabled by default.
+
+* Reporting
+
+  We added support for reporting string values to KairosDB. Reported values
+  that are not Number or Boolean have their toString() reported as a string.
+
+* MaxDataSize and MinDataSize
+
+  We added MaxDataSize and MinDataSize Bean validations.
+
+* HttpClient
+
+  We added a "http-client.max-requests-queued-per-destination" config option
+  (default 1024).
+
+* Thread Factory
+
+  We have changed the thread factory implementations to capture the thread
+  context class loader during factory creation and set this class loader on
+  threads created by the factory.
+
+* Smile mapper
+
+  We have added a JAX-RS mapper encoding responses using Smile.  Smile is a
+  highly efficient binary encoding of JSON data.  For more information on
+  Smile see: http://wiki.fasterxml.com/SmileFormatSpec
+
+* Library upgrades
+  - joda-time to 2.4
+  - Jersey to 2.12
+  - Jetty to 9.2.2
+  - Jackson to 2.4.2
+
+* Maven plugin upgrades
+  - findbugs-maven-plugin to 3.0.0
+
+* [Bug] Don't unannounce from discovery if Announcer never started.
+
+Platform 1.04
+
+* RPM packaging
+
+  We added support to rest-server-base for packaging projects into RPMs.
+  This profile is activated on Linux by creating a file .build-rpm in
+  the root of the module or submodule. This file can be empty. The RPM
+  is attached as an additional artifact.
+
+  The username used to run the server defaults to ${project.artifactId}
+  and can be changed by setting the property ${project.rpm.username}.
+
+  The RPM will stop the server upon upgrade or removal and will refuse
+  to install if the server username does not exist.
+
+* Maven 3.2.2 required
+
+  In order to support RPM packaging, we increased the minimum version of
+  Maven to 3.2.2.
+
+* Library upgrades
+  - Guava to 17.0
+
+* Maven plugin upgrades
+  - findbugs-maven-plugin to 2.5.2
+  - maven-release-plugin to 2.5
+
+Platform 1.03
+
+* JAX-RS 2
+
+  We have upgraded to Jersey 2.9.1 which implements the JAX-RS 2 specification.
+  Platform clients need to change the dependency:
+
+    <groupId>com.sun.jersey</groupId>
+    <artifactId>jersey-core</artifactId>
+
+  to:
+
+    <groupId>javax.ws.rs</groupId>
+    <artifactId>javax.ws.rs-api</artifactId>
+
+  As part of this upgrade we have introduced an explicit binder for JAX-RS
+  resources. For example, the following registers the person JAX-RS resource:
+
+    JaxrsBinder.jaxrsBinder(binder).bind(PersonResource.class)
+
+  The new explicit binding code is backwards compatible with the "binding
+  scraping" code, so you do not need to immediately update your code. The new
+  JaxrsModule will print a warning for each resource that was not explicitly
+  bound, so it is easy to find update existing code. Once you have updated
+  everything, use JaxrsModule.explicitJaxrsModule() to prevent regressions.
+  In a future version we will remove the backwards compatibility, so please
+  update soon.
+
+  We have removed JaxrsBinder.bindResourceFilterFactory(). Users of this  will
+  have to convert their ResouceFilterFactory implementations to JAX-RS 2
+  server filters.
+
+Platform 1.02
+
+* BalancingHttpClient
+
+  We added DiscoveryBinder.bindDiscoveredHttpClient(String) and
+  DiscoveryBinder.bindDiscoveredHttpClient(String, ServiceType) methods which
+  bind the HttpClient with the @ServiceType(type) annotation.
+
+* Library updates
+  - jacoco to 0.7.1 (fixes failures when compiling with JDK 8)
+
+Platform 1.01
+
+* Change packaging to not include zip file dependencies
+
+* Library updates
+  - jmxutils to 1.18
+  - findbugs-annotations to 2.0.3
+
+* [Bug] Fix Discovery announcer client to handle zero announcements
+
+* [Bug] Fix inadvertent masking of errors when detecting jmx agent
+
+Platform 1.00
+
+* HttpServer
+
+  We restored support for compressed request bodies. This had been removed in
+  the Jetty 9 upgrade in Platform 0.91.
+
+* JsonCodec
+
+  We added JsonCodec.withoutPretty() which returns a JsonCodec that doesn't
+  add whitespace to the encoded JSON.
+
+* Assertions
+
+  We added Assertions.assertNotContains() methods.
+
+Platform 0.99
+
+* HTTPClient
+
+  - We have disabled following HTTP redirects by default. Redirects may be
+    enabled per-request using Request.Builder.setFollowRedirects(true).
+
+* HttpServiceSelector
+
+  HttpServiceSelector is now deprecated. Code using it should be rewritten
+  to use a BalancingHttpClient instead.
+
+Platform 0.98
+
+* JaCoCo replaces Cobertura
+
+  We replaced Cobertura with JaCoCo. JaCoCo is now run by default in projects
+  that use library or rest-server-base as a parent POM.
+
+* TimeStat and SparseTimeStat
+
+  - TimeStat and SparseTimeStat now export a Total metric.
+
+  - We added a BlockTimer.timeTo() method for changing the stat object used
+    to record the time.
+
+* BoundedExecutor
+
+  We added BoundedExecutor, which guarantees that no more than maxThreads will
+  be used to execute tasks.
+
+Platform 0.97
+
+* Events
+
+  - The event client now retries failed requests.
+  - The Future returned from EventClient.post() now fails with
+    UnexpectedResponseException when the collector service returns a failure
+    response code.
+
+Platform 0.96
+
+* JMX
+
+  - We no longer announce the "jmx" service to discovery.
+
+  - We no longer enable remote JMX by default. Remote JMX may be enabled with
+    the "jmx.enabled" config option.
+
+* HttpClient
+
+  This release fixes a couple of performance issues and bugs in the HttpClient:
+    - The client was inadvertently requesting GZIP responses. We've disabled this
+      behavior since it affects CPU utilization.
+    - We've fixed an issue in the way the response buffers are managed that
+      affects performance due to unnecessary resizing.
+    - The maximum response size was hard-coded instead of using the existing
+      config option.
+
+* Library upgrade
+  - Jetty to 9.1.4
+
+Platform 0.95
+
+* Reporting
+
+  - We changed some metric names:
+
+    - RequestStats.* renamed to HttpServer.*
+    - DetailedRequestStats.RequestTime.* renamed to HttpServer.RequestTimeByCode.*
+    - Failure.Count renamed to ServiceClient.Failure.Count
+    - ResponseTime.* renamed to ServiceClient.RequestTime.*
+
+  - We no longer report a MaxError metric from TimeStat and DistributionStat.
+
+  - We no longer include a "package" tag in reported metrics.
+
+  - We removed the HttpClient._BindingAnnotation_.Count metric as redundant.
+
+* Stats
+
+  We have deprecated CounterStat.update(long), replacing it by CounterStat.add(long)
+
+  We created SparseCounterStat, etc. for use with report collections. These stats
+  objects do not report any metrics for minutes in which no data were added to the
+  object. They also do not export any attributes to JMX.
+
+* Configuration
+
+  The @ConfigMap annotation is no longer necessary and is deprecated.
+
+Platform 0.94
+
+* The launcher now invokes the JVM with the following default switches:
+
+    -server
+    -XX:+UseConcMarkSweepGC
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+AggressiveOpts
+    -XX:+DoEscapeAnalysis
+    -XX:+UseCompressedOops
+    -XX:OnOutOfMemoryError=kill -9 %p
+
+* We removed unnecessary features from the Rack launcher:
+
+  - The rack launcher no longer copies the etc directory to rack/config
+  - The rack config path is now always "rack/config.ru"
+  - The rack environment is now always "production"
+
+Platform 0.93
+
+* Reverted the Hamcrest support in JsonTester.assertJsonEncode()
+
+* Library upgrade
+  - Jetty to 9.1.3
+
+Platform 0.92
+
+* We created TestingReportCollectionFactory
+
+* JsonTester.assertJsonEncode() now supports Hamcrest matchers
+
+Platform 0.91
+
+* AsyncHttpClient collapsed into HttpClient
+
+  - We moved the executeAsync() method into the HttpClient interface.
+  - The AsyncHttpClient interface is now deprecated.
+  - The AsyncHttpClient.AsyncHttpResponseFuture interface is now named
+    HttpClient.HttpResponseFuture
+
+* HttpClient uses Jetty
+
+  We replaced the Apache and Netty HttpClient implementations with
+  JettyHttpClient, a Jetty implementation.
+
+* Configuration warnings are no longer sent to the event service upon startup.
+
+* We added a Bootstrap.quiet() method to disable logging of configuration.
+
+* We tightened the type bounds of Assertions.assertInstanceOf() to catch some
+  errors at compile time.
+
+* Library upgrades
+  - Jetty to 9.1.2
+  - JRuby to 1.7.11
+
+* Maven plugin upgrades
+  - maven-duplicate-finder-plugin 1.0.6
+
+Platform 0.90
+
+* JsonCodec
+
+  The JsonCodec.jsonCodec() factory method now uses Guava's TypeToken rather than
+  Guice's TypeLiteral. This backwards incompatible change allows using the json
+  module without a dependency on Guice.
+
+* TestingHttpServer now supports resources
+
+* Library upgrades
+  - Guava to 16.0.1
+  - logback to 1.1.1
+  - findbugs-annotations to 2.0.2
+  - testng to 6.8.7
+
+Platform 0.89
+
+* [Bug] BalancingHttpClient no longer dequotes and requotes the URI.
+
+* [Bug] HttpUriBuilder now quotes the '+' character.
+
+Platform 0.88
+
+* Bootstrap and Logging
+
+  - Bootstrap now initializes logging before the withModules() call. Any
+    test code that needs to call doNotInitializeLogging() now must do
+    so before the withModules() call.
+
+  - We modified the archetype Main classes to place the Bootstrap call inside
+    the try block. This allows more startup exceptions to be logged. We
+    recommend applications make a corresponding change to their Main class.
+
+* We removed the deprecated Bootstrap.strictConfig() and
+  ConfigurationFactory.getUsedProperties() methods.
+
+* BalancingHttpClient now avoids concurrent calls to the same instance and
+  uses discovery changes that happen after the first attempt.
+
+* [Bug] BalancingHttpClient instances couldn't be configured.
+
+* [Bug] JAX-RS response time reporting threw exceptions when a resource class
+  had multiple methods with the same name.
+
+* [Bug] The launcher wasn't disconnecting from the terminal upon server start.
+
+Platform 0.87
+
+* The node.pool configuration property now allows uppercase in pool names.
+
+* Reporting
+
+  - JAX-RS now reports response times per resource method and response code.
+    JaxrsModule now depends on ReportingModule.
+
+  - Permute reported metric names as necessary to make them acceptable to KairosDB
+
+Platform 0.86
+
+* Reporting
+
+  - The reporting client now uses discovery. The "report.uri" configuration
+    property has been removed.
+
+  - Reporting is now enabled by default. It may be disabled with the
+    "reporting.enabled" configuration property.
+
+  - The "report.tags" configuration property has been renamed to
+    "reporting.tags".
+
+Platform 0.85
+
+* [Bug] BalancingHttpClient preserve the query part of the URI
+
+Platform 0.84
+
+* Reporting (experimental)
+
+  - The values of any "type" and "name" tags are used to prefix the metric
+    name.
+
+  - The http-client RequestStats are exposed to reporting.
+
+* We added Threads.threadsNamed(String) and Threads.daemonThreadsNamed(String)
+  methods to simplify creating a ThreadFactory.
+
+* We added decayed total to Distribution
+
+* We added merge support to CounterStat and DecayCounter
+
+* [Bug] Ignore IOException in Closeables.closeQuietly()
+
+* Library upgrades
+  - validation-api to 1.1.0.Final
+  - logback to 1.0.13
+
+Platform 0.83
+
+* Application name
+
+  We've added a static factory for Bootstrap which takes the name of the
+  application server:
+
+    Bootstrap.bootstrapApplication("name-of-application")
+        .withModules(...)
+
+  The previous Bootstrap constructors are deprecated.
+
+  The application name can be obtained from NodeInfo.getApplication().
+
+  NodeModule and TestingNodeModule have a dependency on the newly created
+  ApplicationNameModule. This dependency is supplied by Bootstrap.
+
+  The application name is included in a tag named "application" in reported
+  metrics.
+
+* HttpServiceBalancer metrics
+
+  HttpServiceBalancer now reports:
+    - client response times by success/failure and target URI
+    - failures by failure category and target URI
+
+  DiscoveryModule now has a dependency on ReportingModule.
+
+* TestingTicker
+
+  TestingTicker now has public visibility in the testing package. It is an
+  implementation of Ticker that can be manually incremented.
+
+* Library upgrades
+  - Guava to 15.0
+
+Platform 0.82
+
+* We added JaxrsBinder.bindResourceFilterFactory for adding custom
+  ResourceFilterFactory instances to the HTTP server.
+
+* The HTTP server no longer sends HttpRequest events.
+
 Platform 0.81
 
 * We made JAX-RS resource methods Bean-validate arguments of List and Map.

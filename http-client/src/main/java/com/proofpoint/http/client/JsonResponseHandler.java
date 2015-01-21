@@ -22,9 +22,10 @@ import com.google.common.primitives.Ints;
 import com.proofpoint.json.JsonCodec;
 
 import java.io.IOException;
-import java.net.ConnectException;
 import java.util.Set;
 
+import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
+import static com.proofpoint.http.client.ResponseHandlerUtils.propagate;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class JsonResponseHandler<T> implements ResponseHandler<T, RuntimeException>
@@ -58,13 +59,7 @@ public class JsonResponseHandler<T> implements ResponseHandler<T, RuntimeExcepti
     @Override
     public T handleException(Request request, Exception exception)
     {
-        if (exception instanceof ConnectException) {
-            throw new RuntimeException("Server refused connection: " + request.getUri().toASCIIString(), exception);
-        }
-        if (exception instanceof RuntimeException) {
-            throw (RuntimeException) exception;
-        }
-        throw new RuntimeException(exception);
+        throw propagate(request, exception);
     }
 
     @Override
@@ -76,7 +71,7 @@ public class JsonResponseHandler<T> implements ResponseHandler<T, RuntimeExcepti
                     request,
                     response);
         }
-        String contentType = response.getHeader("Content-Type");
+        String contentType = response.getHeader(CONTENT_TYPE);
         if (contentType == null) {
             throw new UnexpectedResponseException("Content-Type is not set for response", request, response);
         }
@@ -88,7 +83,7 @@ public class JsonResponseHandler<T> implements ResponseHandler<T, RuntimeExcepti
             bytes = ByteStreams.toByteArray(response.getInputStream());
         }
         catch (IOException e) {
-            throw new RuntimeException("Error reading response from server");
+            throw new RuntimeException("Error reading JSON response from server", e);
         }
         try {
             return jsonCodec.fromJson(bytes);

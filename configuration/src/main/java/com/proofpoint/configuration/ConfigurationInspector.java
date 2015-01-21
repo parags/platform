@@ -15,7 +15,6 @@
  */
 package com.proofpoint.configuration;
 
-import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableSortedSet;
@@ -27,9 +26,11 @@ import com.proofpoint.configuration.ConfigurationMetadata.AttributeMetadata;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.SortedSet;
 
 import static com.google.common.base.Objects.firstNonNull;
+import static com.google.common.base.Objects.toStringHelper;
 import static com.proofpoint.configuration.ConfigurationMetadata.isConfigClass;
 
 public class ConfigurationInspector
@@ -126,9 +127,9 @@ public class ConfigurationInspector
 
                 String description = firstNonNull(attribute.getDescription(), "");
 
-                final ConfigMap configMap = attribute.getConfigMap();
-                if (getter != null && instance != null && !attribute.isSecuritySensitive() && configMap != null) {
-                    final Class<?> valueClass = configMap.value();
+                final MapClasses mapClasses = attribute.getMapClasses();
+                if (getter != null && instance != null && !attribute.isSecuritySensitive() && mapClasses != null) {
+                    final Class<?> valueClass = mapClasses.getValue();
                     Class<?> valueConfigClass = null;
                     if (isConfigClass(valueClass)) {
                         valueConfigClass = valueClass;
@@ -213,32 +214,30 @@ public class ConfigurationInspector
         }
 
         @Override
-        public boolean equals(Object o)
+        public int hashCode()
         {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            ConfigRecord<?> that = (ConfigRecord<?>) o;
-
-            return key.equals(that.key);
+            return Objects.hash(configClass, prefix);
         }
 
         @Override
-        public int hashCode()
+        public boolean equals(Object obj)
         {
-            return key.hashCode();
+            if (this == obj) {
+                return true;
+            }
+            if (obj == null || getClass() != obj.getClass()) {
+                return false;
+            }
+            final ConfigRecord other = (ConfigRecord) obj;
+            return Objects.equals(this.configClass, other.configClass) && Objects.equals(this.prefix, other.prefix);
         }
 
         @Override
         public int compareTo(ConfigRecord<?> that)
         {
             return ComparisonChain.start()
-                    .compare(String.valueOf(this.key.getTypeLiteral().getType()), String.valueOf(that.key.getTypeLiteral().getType()))
-                    .compare(String.valueOf(this.key.getAnnotationType()), String.valueOf(that.key.getAnnotationType()))
-                    .compare(this.key, that.key, Ordering.arbitrary())
+                    .compare(this.configClass.getCanonicalName(), that.configClass.getCanonicalName())
+                    .compare(this.prefix, that.prefix, Ordering.natural().nullsFirst())
                     .result();
         }
     }
@@ -263,13 +262,13 @@ public class ConfigurationInspector
 
             this.attributeName = attributeName;
             this.propertyName = propertyName;
-            if (securitySensitive && defaultValue != null) {
+            if (securitySensitive) {
                 this.defaultValue = "[REDACTED]";
             }
             else {
                 this.defaultValue = defaultValue;
             }
-            if (securitySensitive && currentValue != null) {
+            if (securitySensitive) {
                 this.currentValue = "[REDACTED]";
             }
             else {
@@ -333,7 +332,7 @@ public class ConfigurationInspector
         @Override
         public String toString()
         {
-            return Objects.toStringHelper(this)
+            return toStringHelper(this)
                     .add("attributeName", attributeName)
                     .add("propertyName", propertyName)
                     .add("defaultValue", defaultValue)

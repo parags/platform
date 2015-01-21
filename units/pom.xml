@@ -8,18 +8,13 @@
     <parent>
         <groupId>com.proofpoint.platform</groupId>
         <artifactId>platform</artifactId>
-        <version>0.82-SNAPSHOT</version>
+        <version>1.11-SNAPSHOT</version>
     </parent>
 
     <dependencies>
         <dependency>
             <groupId>javax.validation</groupId>
             <artifactId>validation-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.bval</groupId>
-            <artifactId>bval-jsr303</artifactId>
         </dependency>
 
         <dependency>
@@ -33,6 +28,7 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- for testing -->
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
@@ -50,6 +46,11 @@
             <artifactId>json</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>org.apache.bval</groupId>
+            <artifactId>bval-jsr303</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
-

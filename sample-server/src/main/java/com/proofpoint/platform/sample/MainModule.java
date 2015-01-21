@@ -22,6 +22,7 @@ import com.google.inject.Scopes;
 import static com.proofpoint.configuration.ConfigurationModule.bindConfig;
 import static com.proofpoint.discovery.client.DiscoveryBinder.discoveryBinder;
 import static com.proofpoint.event.client.EventBinder.eventBinder;
+import static com.proofpoint.jaxrs.JaxrsBinder.jaxrsBinder;
 import static com.proofpoint.reporting.ReportBinder.reportBinder;
 
 public class MainModule
@@ -29,14 +30,13 @@ public class MainModule
 {
     public void configure(Binder binder)
     {
-        binder.requireExplicitBindings();
         binder.disableCircularProxies();
 
         binder.bind(PersonStore.class).in(Scopes.SINGLETON);
         reportBinder(binder).export(PersonStore.class).withGeneratedName();
 
-        binder.bind(PersonsResource.class).in(Scopes.SINGLETON);
-        binder.bind(PersonResource.class).in(Scopes.SINGLETON);
+        jaxrsBinder(binder).bind(PersonsResource.class);
+        jaxrsBinder(binder).bind(PersonResource.class);
 
         bindConfig(binder).to(StoreConfig.class);
         eventBinder(binder).bindEventClient(PersonEvent.class);

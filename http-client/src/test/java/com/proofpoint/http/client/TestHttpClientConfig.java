@@ -16,15 +16,20 @@
 package com.proofpoint.http.client;
 
 import com.google.common.collect.ImmutableMap;
-import com.proofpoint.configuration.testing.ConfigAssertions;
-import com.proofpoint.units.Duration;
 import com.google.common.net.HostAndPort;
+import com.proofpoint.configuration.testing.ConfigAssertions;
+import com.proofpoint.units.DataSize;
+import com.proofpoint.units.DataSize.Unit;
+import com.proofpoint.units.Duration;
 import org.testng.annotations.Test;
 
+import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import static com.proofpoint.http.client.HttpClientConfig.JAVAX_NET_SSL_KEY_STORE;
+import static com.proofpoint.http.client.HttpClientConfig.JAVAX_NET_SSL_KEY_STORE_PASSWORD;
 import static com.proofpoint.testing.ValidationAssertions.assertFailsValidation;
 
 public class TestHttpClientConfig
@@ -38,7 +43,11 @@ public class TestHttpClientConfig
                 .setKeepAliveInterval(null)
                 .setMaxConnections(200)
                 .setMaxConnectionsPerServer(20)
-                .setSocksProxy(null));
+                .setMaxRequestsQueuedPerDestination(20)
+                .setMaxContentLength(new DataSize(16, Unit.MEGABYTE))
+                .setSocksProxy(null)
+                .setKeyStorePath(System.getProperty(JAVAX_NET_SSL_KEY_STORE))
+                .setKeyStorePassword(System.getProperty(JAVAX_NET_SSL_KEY_STORE_PASSWORD)));
     }
 
     @Test
@@ -50,7 +59,11 @@ public class TestHttpClientConfig
                 .put("http-client.keep-alive-interval", "6s")
                 .put("http-client.max-connections", "12")
                 .put("http-client.max-connections-per-server", "3")
+                .put("http-client.max-requests-queued-per-destination", "10")
+                .put("http-client.max-content-length", "1MB")
                 .put("http-client.socks-proxy", "localhost:1080")
+                .put("http-client.key-store-path", "key-store")
+                .put("http-client.key-store-password", "key-store-password")
                 .build();
 
         HttpClientConfig expected = new HttpClientConfig()
@@ -59,7 +72,11 @@ public class TestHttpClientConfig
                 .setKeepAliveInterval(new Duration(6, TimeUnit.SECONDS))
                 .setMaxConnections(12)
                 .setMaxConnectionsPerServer(3)
-                .setSocksProxy(HostAndPort.fromParts("localhost", 1080));
+                .setMaxRequestsQueuedPerDestination(10)
+                .setMaxContentLength(new DataSize(1, Unit.MEGABYTE))
+                .setSocksProxy(HostAndPort.fromParts("localhost", 1080))
+                .setKeyStorePath("key-store")
+                .setKeyStorePassword("key-store-password");
 
         ConfigAssertions.assertFullMapping(properties, expected);
     }
@@ -69,5 +86,9 @@ public class TestHttpClientConfig
     {
         assertFailsValidation(new HttpClientConfig().setConnectTimeout(null), "connectTimeout", "may not be null", NotNull.class);
         assertFailsValidation(new HttpClientConfig().setReadTimeout(null), "readTimeout", "may not be null", NotNull.class);
+        assertFailsValidation(new HttpClientConfig().setMaxConnections(0), "maxConnections", "must be greater than or equal to 1", Min.class);
+        assertFailsValidation(new HttpClientConfig().setMaxConnectionsPerServer(0), "maxConnectionsPerServer", "must be greater than or equal to 1", Min.class);
+        assertFailsValidation(new HttpClientConfig().setMaxRequestsQueuedPerDestination(0), "maxRequestsQueuedPerDestination", "must be greater than or equal to 1", Min.class);
+        assertFailsValidation(new HttpClientConfig().setMaxContentLength(null), "maxContentLength", "may not be null", NotNull.class);
     }
 }

@@ -8,13 +8,24 @@
     <parent>
         <groupId>com.proofpoint.platform</groupId>
         <artifactId>platform</artifactId>
-        <version>0.82-SNAPSHOT</version>
+        <version>1.11-SNAPSHOT</version>
     </parent>
 
     <dependencies>
         <dependency>
             <groupId>com.proofpoint.platform</groupId>
             <artifactId>units</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.proofpoint.platform</groupId>
+            <artifactId>log</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>annotations</artifactId>
+            <optional>true</optional>
         </dependency>
 
         <dependency>
@@ -27,6 +38,7 @@
             <artifactId>jmxutils</artifactId>
         </dependency>
 
+        <!-- for testing -->
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>

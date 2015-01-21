@@ -18,22 +18,33 @@ package com.proofpoint.http.client;
 import com.google.common.annotations.Beta;
 import com.google.common.net.HostAndPort;
 import com.proofpoint.configuration.Config;
+import com.proofpoint.configuration.ConfigDescription;
+import com.proofpoint.units.DataSize;
+import com.proofpoint.units.DataSize.Unit;
 import com.proofpoint.units.Duration;
 import com.proofpoint.units.MinDuration;
 
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
+
 import java.util.concurrent.TimeUnit;
 
 @Beta
 public class HttpClientConfig
 {
+    public static final String JAVAX_NET_SSL_KEY_STORE = "javax.net.ssl.keyStore";
+    public static final String JAVAX_NET_SSL_KEY_STORE_PASSWORD = "javax.net.ssl.keyStorePassword";
+
     private Duration connectTimeout = new Duration(1, TimeUnit.SECONDS);
     private Duration readTimeout = new Duration(1, TimeUnit.MINUTES);
     private Duration keepAliveInterval = null;
     private int maxConnections = 200;
     private int maxConnectionsPerServer = 20;
+    private int maxRequestsQueuedPerDestination = 20;
+    private DataSize maxContentLength = new DataSize(16, Unit.MEGABYTE);
     private HostAndPort socksProxy;
+    private String keyStorePath = System.getProperty(JAVAX_NET_SSL_KEY_STORE);
+    private String keyStorePassword = System.getProperty(JAVAX_NET_SSL_KEY_STORE_PASSWORD);
 
     @NotNull
     @MinDuration("0ms")
@@ -76,12 +87,15 @@ public class HttpClientConfig
     }
 
     @Min(1)
+    @Deprecated
     public int getMaxConnections()
     {
         return maxConnections;
     }
 
     @Config("http-client.max-connections")
+    @ConfigDescription("unused")
+    @Deprecated
     public HttpClientConfig setMaxConnections(int maxConnections)
     {
         this.maxConnections = maxConnections;
@@ -101,6 +115,32 @@ public class HttpClientConfig
         return this;
     }
 
+    @Min(1)
+    public int getMaxRequestsQueuedPerDestination()
+    {
+        return maxRequestsQueuedPerDestination;
+    }
+
+    @Config("http-client.max-requests-queued-per-destination")
+    public HttpClientConfig setMaxRequestsQueuedPerDestination(int maxRequestsQueuedPerDestination)
+    {
+        this.maxRequestsQueuedPerDestination = maxRequestsQueuedPerDestination;
+        return this;
+    }
+
+    @NotNull
+    public DataSize getMaxContentLength()
+    {
+        return maxContentLength;
+    }
+
+    @Config("http-client.max-content-length")
+    public HttpClientConfig setMaxContentLength(DataSize maxContentLength)
+    {
+        this.maxContentLength = maxContentLength;
+        return this;
+    }
+
     public HostAndPort getSocksProxy()
     {
         return socksProxy;
@@ -110,6 +150,30 @@ public class HttpClientConfig
     public HttpClientConfig setSocksProxy(HostAndPort socksProxy)
     {
         this.socksProxy = socksProxy;
+        return this;
+    }
+
+    public String getKeyStorePath()
+    {
+        return keyStorePath;
+    }
+
+    @Config("http-client.key-store-path")
+    public HttpClientConfig setKeyStorePath(String keyStorePath)
+    {
+        this.keyStorePath = keyStorePath;
+        return this;
+    }
+
+    public String getKeyStorePassword()
+    {
+        return keyStorePassword;
+    }
+
+    @Config("http-client.key-store-password")
+    public HttpClientConfig setKeyStorePassword(String keyStorePassword)
+    {
+        this.keyStorePassword = keyStorePassword;
         return this;
     }
 }

@@ -1,17 +1,19 @@
 package com.proofpoint.http.client;
 
 import com.google.common.base.Charsets;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 import com.google.common.io.ByteStreams;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.proofpoint.log.Logging;
 import com.proofpoint.testing.Assertions;
 import com.proofpoint.units.Duration;
+import org.eclipse.jetty.server.HttpConfiguration;
+import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.server.handler.HandlerCollection;
-import org.eclipse.jetty.server.nio.SelectChannelConnector;
-import org.eclipse.jetty.server.ssl.SslSelectChannelConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
@@ -20,34 +22,46 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.Test;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.ConnectException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketAddress;
+import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.UnresolvedAddressException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.google.common.base.Throwables.propagate;
+import static com.google.common.base.Throwables.propagateIfInstanceOf;
+import static com.proofpoint.concurrent.Threads.threadsNamed;
 import static com.proofpoint.http.client.Request.Builder.prepareDelete;
 import static com.proofpoint.http.client.Request.Builder.prepareGet;
 import static com.proofpoint.http.client.Request.Builder.preparePost;
 import static com.proofpoint.http.client.Request.Builder.preparePut;
-import static com.proofpoint.testing.Assertions.assertInstanceOf;
+import static com.proofpoint.testing.Assertions.assertLessThan;
 import static com.proofpoint.testing.Closeables.closeQuietly;
 import static com.proofpoint.units.Duration.nanosSince;
+import static java.lang.String.format;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.fail;
 
 public abstract class AbstractHttpClientTest
@@ -76,6 +90,12 @@ public abstract class AbstractHttpClientTest
     public abstract <T, E extends Exception> T executeRequest(HttpClientConfig config, Request request, ResponseHandler<T, E> responseHandler)
             throws Exception;
 
+    @BeforeSuite
+    public void setupSuite()
+    {
+        Logging.initialize();
+    }
+
     @BeforeMethod
     public void abstractSetup()
             throws Exception
@@ -90,20 +110,30 @@ public abstract class AbstractHttpClientTest
         baseURI = new URI(scheme, null, host, port, null, null, null);
 
         Server server = new Server();
-        server.setSendServerVersion(false);
 
-        SelectChannelConnector httpConnector;
+        HttpConfiguration httpConfiguration = new HttpConfiguration();
+        httpConfiguration.setSendServerVersion(false);
+        httpConfiguration.setSendXPoweredBy(false);
+
+        ServerConnector connector;
         if (keystore != null) {
+            httpConfiguration.addCustomizer(new SecureRequestCustomizer());
+
             SslContextFactory sslContextFactory = new SslContextFactory(keystore);
             sslContextFactory.setKeyStorePassword("changeit");
-            httpConnector = new SslSelectChannelConnector(sslContextFactory);
+            SslConnectionFactory sslConnectionFactory = new SslConnectionFactory(sslContextFactory, "http/1.1");
+
+            connector = new ServerConnector(server, sslConnectionFactory, new HttpConnectionFactory(httpConfiguration));
         }
         else {
-            httpConnector = new SelectChannelConnector();
+            connector = new ServerConnector(server, new HttpConnectionFactory(httpConfiguration));
         }
-        httpConnector.setName(scheme);
-        httpConnector.setPort(port);
-        server.addConnector(httpConnector);
+
+        connector.setIdleTimeout(30000);
+        connector.setName(scheme);
+        connector.setPort(port);
+
+        server.addConnector(connector);
 
         ServletHolder servletHolder = new ServletHolder(servlet);
         ServletContextHandler context = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
@@ -148,42 +178,39 @@ public abstract class AbstractHttpClientTest
         }
     }
 
-    @Test
+    @Test(timeOut = 1000)
     public void testConnectTimeout()
             throws Exception
     {
-        ServerSocket serverSocket = new ServerSocket(0, 1);
-        // create one connection. The OS will auto-accept it because backlog for server socket == 1
+        try (BackloggedServer server = new BackloggedServer()) {
+            HttpClientConfig config = new HttpClientConfig();
+            config.setConnectTimeout(new Duration(5, MILLISECONDS));
+            config.setReadTimeout(new Duration(2, SECONDS));
 
-        HttpClientConfig config = new HttpClientConfig();
-        config.setConnectTimeout(new Duration(5, MILLISECONDS));
+            Request request = prepareGet()
+                    .setUri(new URI(scheme, null, host, server.getPort(), "/", null, null))
+                    .build();
 
-        Request request = prepareGet()
-                .setUri(new URI(scheme, null, host, serverSocket.getLocalPort(), "/", null, null))
-                .build();
-
-        try (Socket clientSocket = new Socket(host, serverSocket.getLocalPort())) {
-            executeRequest(config, request, new CaptureExceptionResponseHandler());
-            fail("expected exception");
-        }
-        catch (CapturedException e) {
-            // todo Linux is throwing ClosedChannelException for SSL. Netty bug?
-            if (!(e.getCause() instanceof ClosedChannelException)) {
-                assertInstanceOf(e.getCause(), SocketTimeoutException.class);
+            long start = System.nanoTime();
+            try {
+                executeRequest(config, request, new CaptureExceptionResponseHandler());
+                fail("expected exception");
             }
-        }
-        finally {
-            serverSocket.close();
+            catch (CapturedException e) {
+                Throwable t = e.getCause();
+                if (!isConnectTimeout(t)) {
+                    fail("unexpected exception: " + t);
+                }
+                assertLessThan(nanosSince(start), new Duration(300, MILLISECONDS));
+            }
         }
     }
 
-    @Test
+    @Test(expectedExceptions = {ConnectException.class, SocketTimeoutException.class})
     public void testConnectionRefused()
             throws Exception
     {
-        ServerSocket serverSocket = new ServerSocket(0, 1);
-        int port = serverSocket.getLocalPort();
-        serverSocket.close();
+        int port = findUnusedPort();
 
         HttpClientConfig config = new HttpClientConfig();
         config.setConnectTimeout(new Duration(5, MILLISECONDS));
@@ -197,20 +224,41 @@ public abstract class AbstractHttpClientTest
             fail("expected exception");
         }
         catch (CapturedException e) {
-            // TODO: Assertions.assertInstanceOf(e.getCause(), ConnectException.class);
-            assertFalse(e.getCause() instanceof CapturedException, "<" + e.getCause() + "> instance of CapturedException");
+            propagateIfInstanceOf(e.getCause(), Exception.class);
+            propagate(e.getCause());
         }
     }
 
     @Test
-    public void testUnresolvableHost()
+    public void testConnectionRefusedWithDefaultingResponseExceptionHandler()
             throws Exception
     {
+        int port = findUnusedPort();
+
         HttpClientConfig config = new HttpClientConfig();
         config.setConnectTimeout(new Duration(5, MILLISECONDS));
 
         Request request = prepareGet()
-                .setUri(URI.create("http://nonexistent.example.com"))
+                .setUri(new URI(scheme, null, host, port, "/", null, null))
+                .build();
+
+        Object expected = new Object();
+        Assert.assertEquals(executeRequest(config, request, new DefaultOnExceptionResponseHandler(expected)), expected);
+    }
+
+
+    @Test(expectedExceptions = {UnknownHostException.class, UnresolvedAddressException.class}, timeOut = 10000)
+    public void testUnresolvableHost()
+            throws Exception
+    {
+        String invalidHost = "nonexistent.invalid";
+        assertUnknownHost(invalidHost);
+
+        HttpClientConfig config = new HttpClientConfig();
+        config.setConnectTimeout(new Duration(5, SECONDS));
+
+        Request request = prepareGet()
+                .setUri(URI.create("http://" + invalidHost))
                 .build();
 
         try {
@@ -218,15 +266,12 @@ public abstract class AbstractHttpClientTest
             fail("Expected exception");
         }
         catch (CapturedException e) {
-            Throwable cause = e.getCause();
-            if (!(cause instanceof UnknownHostException) && !(cause instanceof UnresolvedAddressException)) {
-                fail("Expected UnknownHostException or UnresolvedAddressException, but got " + cause.getClass().getName());
-            }
+            propagateIfInstanceOf(e.getCause(), Exception.class);
+            propagate(e.getCause());
         }
     }
 
-
-    @Test
+    @Test(expectedExceptions = IllegalArgumentException.class)
     public void testBadPort()
             throws Exception
     {
@@ -242,26 +287,9 @@ public abstract class AbstractHttpClientTest
             fail("expected exception");
         }
         catch (CapturedException e) {
-            assertInstanceOf(e.getCause(), IllegalArgumentException.class);
+            propagateIfInstanceOf(e.getCause(), Exception.class);
+            propagate(e.getCause());
         }
-    }
-
-    public void testConnectionRefusedWithDefaultingResponseExceptionHandler()
-            throws Exception
-    {
-        ServerSocket serverSocket = new ServerSocket(0, 1);
-        int port = serverSocket.getLocalPort();
-        serverSocket.close();
-
-        HttpClientConfig config = new HttpClientConfig();
-        config.setConnectTimeout(new Duration(5, MILLISECONDS));
-
-        Request request = prepareGet()
-                .setUri(new URI(scheme, null, host, port, "/", null, null))
-                .build();
-
-        Object expected = new Object();
-        Assert.assertEquals(executeRequest(config, request, new DefaultOnExceptionResponseHandler(expected)), expected);
     }
 
     @Test
@@ -283,7 +311,6 @@ public abstract class AbstractHttpClientTest
         Assert.assertEquals(servlet.requestHeaders.get("foo"), ImmutableList.of("bar"));
         Assert.assertEquals(servlet.requestHeaders.get("dupe"), ImmutableList.of("first", "second"));
         Assert.assertEquals(servlet.requestHeaders.get("x-custom-filter"), ImmutableList.of("customvalue"));
-//        Assert.assertEquals(servlet.requestHeaders.get(HTTP.TRANSFER_ENCODING), Collections.emptyList());
     }
 
     @Test
@@ -316,11 +343,16 @@ public abstract class AbstractHttpClientTest
         int statusCode = executeRequest(request, new ResponseStatusCodeHandler());
         Assert.assertEquals(statusCode, 200);
         Assert.assertEquals(servlet.requestMethod, "GET");
-        Assert.assertEquals(servlet.requestUri, uri);
+        if (servlet.requestUri.toString().endsWith("=")) {
+            // todo jetty client rewrites the uri string for some reason
+            Assert.assertEquals(servlet.requestUri, new URI(uri.toString() + "="));
+        }
+        else {
+            Assert.assertEquals(servlet.requestUri, uri);
+        }
         Assert.assertEquals(servlet.requestHeaders.get("foo"), ImmutableList.of("bar"));
         Assert.assertEquals(servlet.requestHeaders.get("dupe"), ImmutableList.of("first", "second"));
         Assert.assertEquals(servlet.requestHeaders.get("x-custom-filter"), ImmutableList.of("customvalue"));
-//        Assert.assertEquals(servlet.requestHeaders.get(HTTP.TRANSFER_ENCODING), Collections.emptyList());
     }
 
     @Test
@@ -370,7 +402,6 @@ public abstract class AbstractHttpClientTest
         Assert.assertEquals(servlet.requestHeaders.get("foo"), ImmutableList.of("bar"));
         Assert.assertEquals(servlet.requestHeaders.get("dupe"), ImmutableList.of("first", "second"));
         Assert.assertEquals(servlet.requestHeaders.get("x-custom-filter"), ImmutableList.of("customvalue"));
-//        Assert.assertEquals(servlet.requestHeaders.get(HTTP.TRANSFER_ENCODING), Collections.emptyList());
     }
 
     @Test
@@ -392,20 +423,20 @@ public abstract class AbstractHttpClientTest
         Assert.assertEquals(servlet.requestHeaders.get("foo"), ImmutableList.of("bar"));
         Assert.assertEquals(servlet.requestHeaders.get("dupe"), ImmutableList.of("first", "second"));
         Assert.assertEquals(servlet.requestHeaders.get("x-custom-filter"), ImmutableList.of("customvalue"));
-//        Assert.assertEquals(servlet.requestHeaders.get(HTTP.TRANSFER_ENCODING), Collections.emptyList());
     }
 
     @Test
-    public void testPutMethodWithBodyGenerator()
+    public void testPutMethodWithStaticBodyGenerator()
             throws Exception
     {
         URI uri = baseURI.resolve("/road/to/nowhere");
+        byte[] body = {1, 2, 5};
         Request request = preparePut()
                 .setUri(uri)
                 .addHeader("foo", "bar")
                 .addHeader("dupe", "first")
                 .addHeader("dupe", "second")
-                .setBodyGenerator(StaticBodyGenerator.createStaticBodyGenerator(new byte[0]))
+                .setBodyGenerator(StaticBodyGenerator.createStaticBodyGenerator(body))
                 .build();
 
         int statusCode = executeRequest(request, new ResponseStatusCodeHandler());
@@ -415,15 +446,116 @@ public abstract class AbstractHttpClientTest
         Assert.assertEquals(servlet.requestHeaders.get("foo"), ImmutableList.of("bar"));
         Assert.assertEquals(servlet.requestHeaders.get("dupe"), ImmutableList.of("first", "second"));
         Assert.assertEquals(servlet.requestHeaders.get("x-custom-filter"), ImmutableList.of("customvalue"));
-//        Assert.assertEquals(servlet.requestHeaders.get(HTTP.TRANSFER_ENCODING), ImmutableList.of(HTTP.CHUNK_CODING));
+        Assert.assertEquals(servlet.requestBytes, body);
     }
 
-    @Test(expectedExceptions = SocketTimeoutException.class)
+    @Test
+    public void testPutMethodWithDynamicBodyGenerator()
+            throws Exception
+    {
+        URI uri = baseURI.resolve("/road/to/nowhere");
+        Request request = preparePut()
+                .setUri(uri)
+                .addHeader("foo", "bar")
+                .addHeader("dupe", "first")
+                .addHeader("dupe", "second")
+                .setBodyGenerator(new BodyGenerator()
+                {
+                    @Override
+                    public void write(OutputStream out)
+                            throws Exception
+                    {
+                        out.write(1);
+                        out.write(new byte[] {2, 5});
+                    }
+                })
+                .build();
+
+        int statusCode = executeRequest(request, new ResponseStatusCodeHandler());
+        Assert.assertEquals(statusCode, 200);
+        Assert.assertEquals(servlet.requestMethod, "PUT");
+        Assert.assertEquals(servlet.requestUri, uri);
+        Assert.assertEquals(servlet.requestHeaders.get("foo"), ImmutableList.of("bar"));
+        Assert.assertEquals(servlet.requestHeaders.get("dupe"), ImmutableList.of("first", "second"));
+        Assert.assertEquals(servlet.requestHeaders.get("x-custom-filter"), ImmutableList.of("customvalue"));
+        Assert.assertEquals(servlet.requestBytes, new byte[] {1, 2, 5});
+    }
+
+    @Test
+    public void testNoFollowRedirect()
+            throws Exception
+    {
+        servlet.responseStatusCode = 302;
+        servlet.responseBody = "body text";
+        servlet.responseHeaders.put("Location", "http://127.0.0.1:1");
+
+        Request request = prepareGet()
+                .setUri(baseURI)
+                .build();
+
+        int statusCode = executeRequest(request, new ResponseStatusCodeHandler());
+        Assert.assertEquals(statusCode, 302);
+    }
+
+    @Test
+    public void testFollowRedirect()
+            throws Exception
+    {
+        EchoServlet destinationServlet = new EchoServlet();
+
+        int port;
+        try (ServerSocket socket = new ServerSocket()) {
+            socket.bind(new InetSocketAddress(0));
+            port = socket.getLocalPort();
+        }
+
+        Server server = new Server();
+
+        HttpConfiguration httpConfiguration = new HttpConfiguration();
+        httpConfiguration.setSendServerVersion(false);
+        httpConfiguration.setSendXPoweredBy(false);
+
+        ServerConnector connector = new ServerConnector(server, new HttpConnectionFactory(httpConfiguration));
+
+        connector.setIdleTimeout(30000);
+        connector.setName("http");
+        connector.setPort(port);
+
+        server.addConnector(connector);
+
+        ServletHolder servletHolder = new ServletHolder(destinationServlet);
+        ServletContextHandler context = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
+        context.addServlet(servletHolder, "/redirect");
+        HandlerCollection handlers = new HandlerCollection();
+        handlers.addHandler(context);
+        server.setHandler(handlers);
+
+        try {
+            server.start();
+
+            servlet.responseStatusCode = 302;
+            servlet.responseBody = "body text";
+            servlet.responseHeaders.put("Location", format("http://127.0.0.1:%d/redirect", port));
+
+            Request request = prepareGet()
+                    .setUri(baseURI)
+                    .setFollowRedirects(true)
+                    .build();
+
+            int statusCode = executeRequest(request, new ResponseStatusCodeHandler());
+            Assert.assertEquals(statusCode, 200);
+        }
+        finally {
+            server.stop();
+        }
+    }
+
+    @Test(expectedExceptions = {SocketTimeoutException.class, TimeoutException.class, ClosedChannelException.class})
     public void testReadTimeout()
             throws Exception
     {
         HttpClientConfig config = new HttpClientConfig()
-                .setReadTimeout(new Duration(99, MILLISECONDS));
+                .setReadTimeout(new Duration(500, MILLISECONDS));
 
         URI uri = URI.create(baseURI.toASCIIString() + "/?sleep=1000");
         Request request = prepareGet()
@@ -535,13 +667,26 @@ public abstract class AbstractHttpClientTest
         executeRequest(request, new UnexpectedResponseStatusCodeHandler(200));
     }
 
+    @Test
+    public void testCompressionIsDisabled()
+            throws Exception
+    {
+        Request request = prepareGet()
+                .setUri(baseURI)
+                .build();
+
+        String body = executeRequest(request, new ResponseToStringHandler());
+        Assert.assertEquals(body, "");
+        Assert.assertFalse(servlet.requestHeaders.containsKey("Accept-Encoding"));
+    }
+
     private ExecutorService executor;
 
     @BeforeClass
     public void setup()
             throws Exception
     {
-        executor = Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("test-%s").build());
+        executor = Executors.newCachedThreadPool(threadsNamed("test-%s"));
     }
 
     @AfterClass
@@ -553,7 +698,7 @@ public abstract class AbstractHttpClientTest
         }
     }
 
-    @Test(expectedExceptions = IOException.class)
+    @Test(expectedExceptions = {IOException.class, TimeoutException.class})
     public void testConnectNoRead()
             throws Exception
     {
@@ -581,7 +726,7 @@ public abstract class AbstractHttpClientTest
     }
 
 
-    @Test(expectedExceptions = IOException.class)
+    @Test(expectedExceptions = {IOException.class, TimeoutException.class})
     public void testConnectReadIncomplete()
             throws Exception
     {
@@ -595,14 +740,14 @@ public abstract class AbstractHttpClientTest
     }
 
 
-    @Test(expectedExceptions = IOException.class)
+    @Test(expectedExceptions = {IOException.class, TimeoutException.class})
     public void testConnectReadIncompleteClose()
             throws Exception
     {
         try (FakeServer fakeServer = new FakeServer(scheme, host, 10, null, true)) {
             HttpClientConfig config = new HttpClientConfig();
-            config.setConnectTimeout(new Duration(5, SECONDS));
-            config.setReadTimeout(new Duration(5, SECONDS));
+            config.setConnectTimeout(new Duration(500, MILLISECONDS));
+            config.setReadTimeout(new Duration(500, MILLISECONDS));
 
             executeRequest(fakeServer, config);
         }
@@ -660,7 +805,7 @@ public abstract class AbstractHttpClientTest
             executeRequest(config, request, new ResponseToStringHandler());
         }
         finally {
-            Assertions.assertLessThan(nanosSince(start), new Duration(1, SECONDS), "Expected request to finish quickly");
+            assertLessThan(nanosSince(start), new Duration(1, SECONDS), "Expected request to finish quickly");
         }
     }
 
@@ -722,7 +867,7 @@ public abstract class AbstractHttpClientTest
                 // todo sleep here maybe
             }
             catch (IOException e) {
-                throw Throwables.propagate(e);
+                throw propagate(e);
             }
             finally {
                 if (closeConnectionImmediately) {
@@ -789,7 +934,7 @@ public abstract class AbstractHttpClientTest
         @Override
         public Integer handleException(Request request, Exception exception)
         {
-            throw (RuntimeException) exception; // TODO remove this workaround to the Netty client bug
+            throw ResponseHandlerUtils.propagate(request, exception);
         }
 
         @Override
@@ -821,7 +966,8 @@ public abstract class AbstractHttpClientTest
         }
     }
 
-    public static class CaptureExceptionResponseHandler implements ResponseHandler<String, CapturedException>
+    public static class CaptureExceptionResponseHandler
+            implements ResponseHandler<String, CapturedException>
     {
         @Override
         public String handleException(Request request, Exception exception)
@@ -839,12 +985,13 @@ public abstract class AbstractHttpClientTest
 
     }
 
-    public static class ThrowErrorResponseHandler implements ResponseHandler<String, Exception>
+    public static class ThrowErrorResponseHandler
+            implements ResponseHandler<String, Exception>
     {
         @Override
         public String handleException(Request request, Exception exception)
         {
-            throw new UnsupportedOperationException("not yet implemented");
+            throw new UnsupportedOperationException("not yet implemented", exception);
         }
 
         @Override
@@ -855,11 +1002,11 @@ public abstract class AbstractHttpClientTest
     }
 
     private static class CustomError
-            extends Error
-    {
+            extends Error {
     }
 
-    protected static class CapturedException extends Exception
+    protected static class CapturedException
+            extends Exception
     {
         public CapturedException(Exception exception)
         {
@@ -867,7 +1014,8 @@ public abstract class AbstractHttpClientTest
         }
     }
 
-    private class DefaultOnExceptionResponseHandler implements ResponseHandler<Object, RuntimeException>
+    private static class DefaultOnExceptionResponseHandler
+            implements ResponseHandler<Object, RuntimeException>
     {
 
         private final Object defaultObject;
@@ -890,5 +1038,88 @@ public abstract class AbstractHttpClientTest
         {
             throw new UnsupportedOperationException();
         }
+    }
+
+    private static int findUnusedPort()
+            throws IOException
+    {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        }
+    }
+
+    @SuppressWarnings("SocketOpenedButNotSafelyClosed")
+    private static class BackloggedServer
+            implements Closeable
+    {
+        private final List<Socket> clientSockets = new ArrayList<>();
+        private final ServerSocket serverSocket;
+        private final SocketAddress localSocketAddress;
+
+        private BackloggedServer()
+                throws IOException
+        {
+            this.serverSocket = new ServerSocket(0, 1);
+            localSocketAddress = serverSocket.getLocalSocketAddress();
+
+            // some systems like Linux have a large minimum backlog
+            int i = 0;
+            while (i <= 40) {
+                if (!connect()) {
+                    return;
+                }
+                i++;
+            }
+            fail(format("socket backlog is too large (%s connections accepted)", i));
+        }
+
+        @Override
+        public void close()
+        {
+            for (Socket socket : clientSockets) {
+                closeQuietly(socket);
+            }
+            closeQuietly(serverSocket);
+        }
+
+        private int getPort()
+        {
+            return serverSocket.getLocalPort();
+        }
+
+        private boolean connect()
+        {
+            Socket socket = new Socket();
+            clientSockets.add(socket);
+
+            try {
+                socket.connect(localSocketAddress, 5);
+                return true;
+            }
+            catch (IOException e) {
+                if (isConnectTimeout(e)) {
+                    return false;
+                }
+                throw propagate(e);
+            }
+        }
+    }
+
+    @SuppressWarnings("ResultOfMethodCallIgnored")
+    private static void assertUnknownHost(String host)
+    {
+        try {
+            InetAddress.getByName(host);
+            fail("Expected UnknownHostException for host " + host);
+        }
+        catch (UnknownHostException e) {
+            // expected
+        }
+    }
+
+    private static boolean isConnectTimeout(Throwable t)
+    {
+        // Linux refuses connections immediately rather than queuing them
+        return (t instanceof SocketTimeoutException) || (t instanceof SocketException);
     }
 }

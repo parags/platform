@@ -26,8 +26,11 @@ import com.proofpoint.discovery.client.announce.AnnouncementHttpServerInfo;
 import com.proofpoint.discovery.client.announce.ServiceAnnouncement;
 import com.proofpoint.discovery.client.announce.StaticAnnouncementHttpServerInfoImpl;
 import com.proofpoint.discovery.client.testing.TestingDiscoveryModule;
+import com.proofpoint.node.ApplicationNameModule;
+import com.proofpoint.reporting.ReportingModule;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.weakref.jmx.testing.TestingMBeanModule;
 
 import java.net.URI;
 import java.util.Set;
@@ -45,18 +48,7 @@ public class TestHttpAnnouncementBinder
                 null
         );
 
-        Injector injector = Guice.createInjector(
-                new TestingDiscoveryModule(),
-                new Module()
-                {
-                    @Override
-                    public void configure(Binder binder)
-                    {
-                        binder.bind(AnnouncementHttpServerInfo.class).toInstance(httpServerInfo);
-                        DiscoveryBinder.discoveryBinder(binder).bindHttpAnnouncement("apple");
-                    }
-                }
-        );
+        Injector injector = createInjector(httpServerInfo);
 
         ServiceAnnouncement announcement = serviceAnnouncement("apple")
                 .addProperty("http", httpServerInfo.getHttpUri().toASCIIString())
@@ -79,18 +71,7 @@ public class TestHttpAnnouncementBinder
                 URI.create("https://example.com:4444")
         );
 
-        Injector injector = Guice.createInjector(
-                new TestingDiscoveryModule(),
-                new Module()
-                {
-                    @Override
-                    public void configure(Binder binder)
-                    {
-                        binder.bind(AnnouncementHttpServerInfo.class).toInstance(httpServerInfo);
-                        DiscoveryBinder.discoveryBinder(binder).bindHttpAnnouncement("apple");
-                    }
-                }
-        );
+        Injector injector = createInjector(httpServerInfo);
 
         ServiceAnnouncement announcement = serviceAnnouncement("apple")
                 .addProperty("https", httpServerInfo.getHttpsUri().toASCIIString())
@@ -112,18 +93,7 @@ public class TestHttpAnnouncementBinder
                 URI.create("https://example.com:4444")
         );
 
-        Injector injector = Guice.createInjector(
-                new TestingDiscoveryModule(),
-                new Module()
-                {
-                    @Override
-                    public void configure(Binder binder)
-                    {
-                        binder.bind(AnnouncementHttpServerInfo.class).toInstance(httpServerInfo);
-                        DiscoveryBinder.discoveryBinder(binder).bindHttpAnnouncement("apple");
-                    }
-                }
-        );
+        Injector injector = createInjector(httpServerInfo);
 
         ServiceAnnouncement announcement = serviceAnnouncement("apple")
                 .addProperty("http", httpServerInfo.getHttpUri().toASCIIString())
@@ -148,7 +118,10 @@ public class TestHttpAnnouncementBinder
         );
 
         Injector injector = Guice.createInjector(
+                new ApplicationNameModule("test-application"),
                 new TestingDiscoveryModule(),
+                new TestingMBeanModule(),
+                new ReportingModule(),
                 new Module()
                 {
                     @Override
@@ -172,6 +145,25 @@ public class TestHttpAnnouncementBinder
         }));
 
         assertAnnouncement(announcements, announcement);
+    }
+
+    private Injector createInjector(final StaticAnnouncementHttpServerInfoImpl httpServerInfo)
+    {
+        return Guice.createInjector(
+                new ApplicationNameModule("test-application"),
+                new TestingDiscoveryModule(),
+                new TestingMBeanModule(),
+                new ReportingModule(),
+                new Module()
+                {
+                    @Override
+                    public void configure(Binder binder)
+                    {
+                        binder.bind(AnnouncementHttpServerInfo.class).toInstance(httpServerInfo);
+                        DiscoveryBinder.discoveryBinder(binder).bindHttpAnnouncement("apple");
+                    }
+                }
+        );
     }
 
     private void assertAnnouncement(Set<ServiceAnnouncement> actualAnnouncements, ServiceAnnouncement expected)

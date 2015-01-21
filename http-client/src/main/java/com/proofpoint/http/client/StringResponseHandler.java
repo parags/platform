@@ -22,11 +22,12 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.MediaType;
 import com.proofpoint.http.client.StringResponseHandler.StringResponse;
-import org.apache.http.HttpHeaders;
 
 import java.io.IOException;
-import java.net.ConnectException;
 import java.util.List;
+
+import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
+import static com.proofpoint.http.client.ResponseHandlerUtils.propagate;
 
 public class StringResponseHandler implements ResponseHandler<StringResponse, RuntimeException>
 {
@@ -44,20 +45,14 @@ public class StringResponseHandler implements ResponseHandler<StringResponse, Ru
     @Override
     public StringResponse handleException(Request request, Exception exception)
     {
-        if (exception instanceof ConnectException) {
-            throw new RuntimeException("Server refused connection: " + request.getUri().toASCIIString(), exception);
-        }
-        if (exception instanceof RuntimeException) {
-            throw (RuntimeException) exception;
-        }
-        throw new RuntimeException(exception);
+        throw propagate(request, exception);
     }
 
     @Override
     public StringResponse handle(Request request, Response response)
     {
         try {
-            String contentType = response.getHeader(HttpHeaders.CONTENT_TYPE);
+            String contentType = response.getHeader(CONTENT_TYPE);
 
             if (contentType != null) {
                 MediaType mediaType = MediaType.parse(contentType);

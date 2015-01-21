@@ -51,6 +51,29 @@ public final class Assertions
         }
         fail("%sexpected:<%s> to contain <%s>", toMessageString(message), actual, expectedPart);
     }
+    public static void assertNotContains(String actual, String expectedPart)
+    {
+        assertNotContains(actual, expectedPart, null);
+    }
+
+    public static void assertNotContainsAnyOf(String actual, String... expectedParts)
+    {
+        // todo improve naive implementation
+        for (String expected : expectedParts) {
+            assertNotContains(actual, expected, null);
+        }
+    }
+
+    public static void assertNotContains(String actual, String expectedPart, String message)
+    {
+        assertNotNull(actual, "actual is null");
+        assertNotNull(expectedPart, "expectedPart is null");
+        if (!actual.contains(expectedPart)) {
+            // ok
+            return;
+        }
+        fail("%sexpected:<%s> to not contain <%s>", toMessageString(message), actual, expectedPart);
+    }
 
     public static void assertEqualsIgnoreCase(String actual, String expected)
     {
@@ -280,12 +303,12 @@ public final class Assertions
         fail("%sexpected:<%s> to be between <%s> and <%s> exclusive", toMessageString(message), actual, lowerBound, upperBound);
     }
 
-    public static void assertInstanceOf(Object actual, Class<?> expectedType)
+    public static <T, U extends T> void assertInstanceOf(T actual, Class<U> expectedType)
     {
         assertInstanceOf(actual, expectedType, null);
     }
 
-    public static void assertInstanceOf(Object actual, Class<?> expectedType, String message)
+    public static <T, U extends T> void assertInstanceOf(T actual, Class<U> expectedType, String message)
     {
         assertNotNull(actual, "actual is null");
         assertNotNull(expectedType, "expectedType is null");

@@ -18,8 +18,6 @@ package com.proofpoint.http.server.testing;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Inject;
-import com.proofpoint.event.client.EventClient;
-import com.proofpoint.event.client.NullEventClient;
 import com.proofpoint.http.server.HttpServer;
 import com.proofpoint.http.server.HttpServerBinder.HttpResourceBinding;
 import com.proofpoint.http.server.HttpServerConfig;
@@ -28,7 +26,7 @@ import com.proofpoint.http.server.QueryStringFilter;
 import com.proofpoint.http.server.RequestStats;
 import com.proofpoint.http.server.TheServlet;
 import com.proofpoint.node.NodeInfo;
-import com.proofpoint.stats.TimeStat;
+import com.proofpoint.stats.SparseTimeStat;
 import com.proofpoint.tracetoken.TraceTokenManager;
 import org.eclipse.jetty.server.handler.RequestLogHandler;
 
@@ -47,16 +45,35 @@ public class TestingHttpServer extends HttpServer
 
     private final HttpServerInfo httpServerInfo;
 
-    public TestingHttpServer(HttpServerInfo httpServerInfo, NodeInfo nodeInfo, HttpServerConfig config, Servlet servlet, Map<String, String> initParameters)
+    public TestingHttpServer(
+            HttpServerInfo httpServerInfo,
+            NodeInfo nodeInfo,
+            HttpServerConfig config,
+            Servlet servlet,
+            Map<String, String> initParameters)
             throws IOException
     {
-        this(httpServerInfo, nodeInfo, config, servlet, initParameters, ImmutableSet.<Filter>of(), new QueryStringFilter(), new TraceTokenManager());
+        this(httpServerInfo,
+                nodeInfo,
+                config,
+                servlet,
+                initParameters,
+                ImmutableSet.<Filter>of(),
+                ImmutableSet.<HttpResourceBinding>of(),
+                new QueryStringFilter(),
+                new TraceTokenManager());
     }
 
     @Inject
-    public TestingHttpServer(HttpServerInfo httpServerInfo, NodeInfo nodeInfo, HttpServerConfig config,
-            @TheServlet Servlet servlet, @TheServlet Map<String, String> initParameters, @TheServlet Set<Filter> filters,
-            QueryStringFilter queryStringFilter, TraceTokenManager traceTokenManager)
+    public TestingHttpServer(HttpServerInfo httpServerInfo,
+            NodeInfo nodeInfo,
+            HttpServerConfig config,
+            @TheServlet Servlet servlet,
+            @TheServlet Map<String, String> initParameters,
+            @TheServlet Set<Filter> filters,
+            @TheServlet Set<HttpResourceBinding> resources,
+            QueryStringFilter queryStringFilter,
+            TraceTokenManager traceTokenManager)
             throws IOException
     {
         super(httpServerInfo,
@@ -65,7 +82,8 @@ public class TestingHttpServer extends HttpServer
                 servlet,
                 initParameters,
                 ImmutableSet.copyOf(filters),
-                ImmutableSet.<HttpResourceBinding>of(),
+                resources,
+                null,
                 ImmutableMap.<String, String>of(),
                 ImmutableSet.<Filter>of(),
                 null,
@@ -73,13 +91,13 @@ public class TestingHttpServer extends HttpServer
                 queryStringFilter,
                 traceTokenManager,
                 new RequestStats(),
-                new DetailedRequestStats(),
-                new NullEventClient());
+                new DetailedRequestStats()
+        );
         this.httpServerInfo = httpServerInfo;
     }
 
     @Override
-    public RequestLogHandler createLogHandler(HttpServerConfig config, TraceTokenManager tokenManager, EventClient eventClient)
+    public RequestLogHandler createLogHandler(HttpServerConfig config, TraceTokenManager tokenManager)
             throws IOException
     {
         return null;
@@ -98,9 +116,9 @@ public class TestingHttpServer extends HttpServer
     public static class DetailedRequestStats implements com.proofpoint.http.server.DetailedRequestStats
     {
         @Override
-        public TimeStat requestTime(int responseCode)
+        public SparseTimeStat requestTimeByCode(int responseCode)
         {
-            return new TimeStat();
+            return new SparseTimeStat();
         }
     }
 }

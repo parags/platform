@@ -3,24 +3,27 @@ package com.proofpoint.platform.skeleton;
 import com.google.inject.Injector;
 import com.proofpoint.bootstrap.Bootstrap;
 import com.proofpoint.bootstrap.LifeCycleManager;
-import com.proofpoint.http.client.ApacheHttpClient;
 import com.proofpoint.http.client.HttpClient;
 import com.proofpoint.http.client.StatusResponseHandler.StatusResponse;
+import com.proofpoint.http.client.jetty.JettyHttpClient;
 import com.proofpoint.http.server.testing.TestingHttpServer;
 import com.proofpoint.http.server.testing.TestingHttpServerModule;
-import com.proofpoint.jaxrs.JaxrsModule;
 import com.proofpoint.jmx.JmxHttpModule;
-import com.proofpoint.jmx.JmxModule;
 import com.proofpoint.json.JsonModule;
 import com.proofpoint.node.testing.TestingNodeModule;
+import com.proofpoint.reporting.ReportingModule;
+import com.proofpoint.testing.Closeables;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.weakref.jmx.testing.TestingMBeanModule;
 
 import java.net.URI;
 
+import static com.proofpoint.bootstrap.Bootstrap.bootstrapApplication;
 import static com.proofpoint.http.client.Request.Builder.prepareGet;
 import static com.proofpoint.http.client.StatusResponseHandler.createStatusResponseHandler;
+import static com.proofpoint.jaxrs.JaxrsModule.explicitJaxrsModule;
 import static javax.ws.rs.core.Response.Status.NOT_FOUND;
 import static org.testng.Assert.assertEquals;
 
@@ -34,30 +37,38 @@ public class TestServer
     public void setup()
             throws Exception
     {
-        Bootstrap app = new Bootstrap(
-                new TestingNodeModule(),
-                new TestingHttpServerModule(),
-                new JsonModule(),
-                new JaxrsModule(),
-                new JmxHttpModule(),
-                new JmxModule(),
-                new MainModule());
+        Bootstrap app = bootstrapApplication("test-application")
+                .doNotInitializeLogging()
+                .withModules(
+                        new TestingNodeModule(),
+                        new TestingHttpServerModule(),
+                        new JsonModule(),
+                        explicitJaxrsModule(),
+                        new JmxHttpModule(),
+                        new ReportingModule(),
+                        new TestingMBeanModule(),
+                        new MainModule()
+                );
 
         Injector injector = app
-                .doNotInitializeLogging()
                 .initialize();
 
         lifeCycleManager = injector.getInstance(LifeCycleManager.class);
         server = injector.getInstance(TestingHttpServer.class);
-        client = new ApacheHttpClient();
+        client = new JettyHttpClient();
     }
 
     @AfterMethod
     public void teardown()
             throws Exception
     {
-        if (lifeCycleManager != null) {
-            lifeCycleManager.stop();
+        try {
+            if (lifeCycleManager != null) {
+                lifeCycleManager.stop();
+            }
+        }
+        finally {
+            Closeables.closeQuietly(client);
         }
     }
 

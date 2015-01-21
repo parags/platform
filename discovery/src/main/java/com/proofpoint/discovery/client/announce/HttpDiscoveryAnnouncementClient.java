@@ -16,7 +16,6 @@
 package com.proofpoint.discovery.client.announce;
 
 import com.google.common.base.Charsets;
-import com.google.common.base.Preconditions;
 import com.google.common.io.CharStreams;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.MediaType;
@@ -24,9 +23,10 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.inject.Inject;
 import com.proofpoint.discovery.client.DiscoveryException;
 import com.proofpoint.discovery.client.ForDiscoveryClient;
-import com.proofpoint.http.client.AsyncHttpClient;
 import com.proofpoint.http.client.CacheControl;
+import com.proofpoint.http.client.HttpClient;
 import com.proofpoint.http.client.Request;
+import com.proofpoint.http.client.Request.Builder;
 import com.proofpoint.http.client.Response;
 import com.proofpoint.http.client.ResponseHandler;
 import com.proofpoint.json.JsonCodec;
@@ -40,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.proofpoint.http.client.JsonBodyGenerator.jsonBodyGenerator;
 import static com.proofpoint.http.client.Request.Builder.prepareDelete;
 import static com.proofpoint.http.client.Request.Builder.preparePut;
@@ -50,16 +51,16 @@ public class HttpDiscoveryAnnouncementClient implements DiscoveryAnnouncementCli
 
     private final NodeInfo nodeInfo;
     private final JsonCodec<Announcement> announcementCodec;
-    private final AsyncHttpClient httpClient;
+    private final HttpClient httpClient;
 
     @Inject
     public HttpDiscoveryAnnouncementClient(NodeInfo nodeInfo,
             JsonCodec<Announcement> announcementCodec,
-            @ForDiscoveryClient AsyncHttpClient httpClient)
+            @ForDiscoveryClient HttpClient httpClient)
     {
-        Preconditions.checkNotNull(nodeInfo, "nodeInfo is null");
-        Preconditions.checkNotNull(announcementCodec, "announcementCodec is null");
-        Preconditions.checkNotNull(httpClient, "httpClient is null");
+        checkNotNull(nodeInfo, "nodeInfo is null");
+        checkNotNull(announcementCodec, "announcementCodec is null");
+        checkNotNull(httpClient, "httpClient is null");
 
         this.nodeInfo = nodeInfo;
         this.announcementCodec = announcementCodec;
@@ -69,15 +70,24 @@ public class HttpDiscoveryAnnouncementClient implements DiscoveryAnnouncementCli
     @Override
     public ListenableFuture<Duration> announce(Set<ServiceAnnouncement> services)
     {
-        Preconditions.checkNotNull(services, "services is null");
+        checkNotNull(services, "services is null");
 
-        Announcement announcement = new Announcement(nodeInfo.getEnvironment(), nodeInfo.getNodeId(), nodeInfo.getPool(), nodeInfo.getLocation(), services);
-        Request request = preparePut()
+        Builder builder;
+        final boolean servicesEmpty = services.isEmpty();
+        if (servicesEmpty) {
+            builder = prepareDelete();
+        }
+        else {
+            Announcement announcement = new Announcement(nodeInfo.getEnvironment(), nodeInfo.getNodeId(), nodeInfo.getPool(), nodeInfo.getLocation(), services);
+            builder = preparePut()
+                    .setHeader("Content-Type", MEDIA_TYPE_JSON.toString())
+                    .setBodyGenerator(jsonBodyGenerator(announcementCodec, announcement));
+        }
+        Request request = builder
                 .setUri(URI.create("v1/announcement/" + nodeInfo.getNodeId()))
                 .setHeader("User-Agent", nodeInfo.getNodeId())
-                .setHeader("Content-Type", MEDIA_TYPE_JSON.toString())
-                .setBodyGenerator(jsonBodyGenerator(announcementCodec, announcement))
                 .build();
+
         return httpClient.executeAsync(request, new DiscoveryResponseHandler<Duration>("Announcement")
         {
             @Override
@@ -85,6 +95,9 @@ public class HttpDiscoveryAnnouncementClient implements DiscoveryAnnouncementCli
                     throws DiscoveryException
             {
                 int statusCode = response.getStatusCode();
+                if (statusCode == 404 && servicesEmpty) {
+                    statusCode = 200;
+                }
                 if (!isSuccess(statusCode)) {
                     throw new DiscoveryException(String.format("Announcement failed with status code %s: %s", statusCode, getBodyForError(response)));
                 }
@@ -131,7 +144,8 @@ public class HttpDiscoveryAnnouncementClient implements DiscoveryAnnouncementCli
         return DEFAULT_DELAY;
     }
 
-    private class DiscoveryResponseHandler<T> implements ResponseHandler<T, DiscoveryException>
+    private static class DiscoveryResponseHandler<T>
+            implements ResponseHandler<T, DiscoveryException>
     {
         private final String name;
 

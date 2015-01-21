@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.proofpoint.platform</groupId>
     <artifactId>library</artifactId>
-    <version>0.82-SNAPSHOT</version>
+    <version>1.11-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Library POM</name>
     <description>Library POM</description>
@@ -24,24 +24,9 @@
 
     <developers>
         <developer>
-            <id>ahong</id>
-            <name>Alfred Hong</name>
-            <email>ahong@proofpoint.com</email>
-        </developer>
-        <developer>
-            <id>altitude</id>
-            <name>Alex Tang</name>
-            <email>altitude@proofpoint.com</email>
-        </developer>
-        <developer>
             <id>jgmyers</id>
             <name>John Gardiner Myers</name>
             <email>jgmyers@proofpoint.com</email>
-        </developer>
-        <developer>
-            <id>mkent</id>
-            <name>Mark Kent</name>
-            <email>mkent@proofpoint.com</email>
         </developer>
     </developers>
 
@@ -69,6 +54,10 @@
         <platform.check.skip-enforcer>${platform.check.skip-basic}</platform.check.skip-enforcer>
         <platform.check.skip-duplicate-finder>${platform.check.skip-basic}</platform.check.skip-duplicate-finder>
 
+        <!-- extended checks -->
+        <platform.check.skip-findbugs>${platform.check.skip-extended}</platform.check.skip-findbugs>
+        <platform.check.skip-jacoco>${platform.check.skip-extended}</platform.check.skip-jacoco>
+
         <platform.check.fail-all>true</platform.check.fail-all>
         <platform.check.fail-basic>${platform.check.fail-all}</platform.check.fail-basic>
         <platform.check.fail-extended>${platform.check.fail-all}</platform.check.fail-extended>
@@ -77,18 +66,26 @@
         <platform.check.fail-enforcer>${platform.check.fail-basic}</platform.check.fail-enforcer>
         <platform.check.fail-duplicate-finder>${platform.check.fail-basic}</platform.check.fail-duplicate-finder>
 
-        <dep.jetty.version>8.1.10.v20130312</dep.jetty.version>
-        <dep.slf4j.version>1.7.5</dep.slf4j.version>
+        <!-- extended checks -->
+        <platform.check.fail-findbugs>false</platform.check.fail-findbugs>
+
+        <dep.jetty.version>9.2.6.v20141205</dep.jetty.version>
+        <dep.slf4j.version>1.7.8</dep.slf4j.version>
+        <dep.logback.version>1.1.2</dep.logback.version>
+        <dep.javax-servlet.version>3.1.0</dep.javax-servlet.version>
+        <dep.jackson.version>2.4.3</dep.jackson.version>
+        <dep.jersey.version>2.13</dep.jersey.version>
     </properties>
 
     <scm>
         <connection>scm:git:git://github.com/proofpoint/platform.git</connection>
         <developerConnection>scm:git:git@github.com:proofpoint/platform.git</developerConnection>
         <url>http://github.com/proofpoint/platform/tree/master</url>
-    </scm>
+      <tag>HEAD</tag>
+  </scm>
 
     <prerequisites>
-        <maven>3.0</maven>
+        <maven>3.2.2</maven>
     </prerequisites>
 
     <build>
@@ -125,7 +122,7 @@
                     <executions>
                         <execution>
                             <id>default</id>
-                            <phase>verify</phase>
+                            <phase>validate</phase>
                             <goals>
                                 <goal>enforce</goal>
                             </goals>
@@ -143,8 +140,7 @@
                                     <exclude>commons-logging:commons-logging-api</exclude>
                                     <!-- clashes with cglib:cglib-nodep -->
                                     <exclude>cglib:cglib</exclude>
-                                    <!-- junit repackages hamcrest into its own jar, which is a big no-no.
-                                         junit-dep fixes this problem -->
+                                    <!-- old versions of junit repackage hamcrest -->
                                     <exclude>junit:junit</exclude>
                                     <!-- use guava -->
                                     <exclude>com.google.collections:google-collections</exclude>
@@ -173,10 +169,11 @@
                                 <includes>
                                     <!-- whitelist the well numbered guava releases -->
                                     <include>com.google.guava:guava:[10.0.1,)</include>
-                                </includes>
+                                    <!-- newer versions of junit do not repackage hamcrest -->
+                                    <include>junit:junit:[4.11,)</include>                                </includes>
                             </bannedDependencies>
                             <requireMavenVersion>
-                                <version>3.0.0</version>
+                                <version>3.2.2</version>
                             </requireMavenVersion>
                             <requireJavaVersion>
                                 <version>${project.build.targetJdk}</version>
@@ -196,6 +193,7 @@
                         <encoding>${project.build.sourceEncoding}</encoding>
                         <maxmem>${platform.build.jvmsize}</maxmem>
                         <showWarnings>true</showWarnings>
+                        <fork>true</fork>
                     </configuration>
                 </plugin>
 
@@ -226,8 +224,6 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>2.14</version>
                     <configuration>
-                        <!-- Work around Cobertura incompatibilty with Java 7 -->
-                        <argLine>-XX:-UseSplitVerifier</argLine>
                         <systemPropertyVariables>
                             <file.encoding>${project.build.sourceEncoding}</file.encoding>
                             <sun.jnu.encoding>${project.build.sourceEncoding}</sun.jnu.encoding>
@@ -241,11 +237,16 @@
 
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-release-plugin</artifactId>
+                    <version>2.5</version>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-javadoc-plugin</artifactId>
                     <version>2.9</version>
                     <configuration>
                         <source>${project.build.targetJdk}</source>
-                        <target>${project.build.targetJdk}</target>
                         <encoding>${project.build.sourceEncoding}</encoding>
                         <maxmemory>${platform.build.jvmsize}</maxmemory>
                         <additionalparam>-quiet</additionalparam>
@@ -287,11 +288,26 @@
                 <plugin>
                     <groupId>com.ning.maven.plugins</groupId>
                     <artifactId>maven-duplicate-finder-plugin</artifactId>
-                    <version>1.0.4</version>
+                    <version>1.0.6</version>
                     <configuration>
                         <skip>${platform.check.skip-duplicate-finder}</skip>
                         <failBuildInCaseOfConflict>${platform.check.fail-duplicate-finder}</failBuildInCaseOfConflict>
                         <exceptions>
+                            <exception>
+                                <conflictingDependencies>
+                                    <dependency>
+                                        <groupId>com.proofpoint.platform</groupId>
+                                        <artifactId>http-server</artifactId>
+                                    </dependency>
+                                    <dependency>
+                                        <groupId>com.proofpoint.platform</groupId>
+                                        <artifactId>http-client</artifactId>
+                                    </dependency>
+                                </conflictingDependencies>
+                                <resources>
+                                    <resource>jetty-logging.properties</resource>
+                                </resources>
+                            </exception>
                             <exception>
                                 <!-- For bval-jsr303 -->
                                 <conflictingDependencies>
@@ -319,6 +335,10 @@
                             <!-- For all the jetty packages -->
                             <ignoredResource>about\.html</ignoredResource>
                             <ignoredResource>META-INF/.*</ignoredResource>
+                            <ignoredResource>about_files/.*</ignoredResource>
+                            <ignoredResource>plugin\.properties</ignoredResource>
+                            <ignoredResource>.*\.java</ignoredResource>
+                            <ignoredResource>THIRD-PARTY</ignoredResource>
                         </ignoredResources>
 
                         <ignoredDependencies>
@@ -331,6 +351,26 @@
                     </configuration>
                     <executions>
                         <execution>
+                            <phase>process-test-classes</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>findbugs-maven-plugin</artifactId>
+                    <version>3.0.0</version>
+                    <configuration>
+                        <skip>${platform.check.skip-findbugs}</skip>
+                        <jvmArgs>-Xmx${platform.build.jvmsize}</jvmArgs>
+                        <failOnError>${platform.check.fail-findbugs}</failOnError>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>default</id>
                             <phase>verify</phase>
                             <goals>
                                 <goal>check</goal>
@@ -340,11 +380,72 @@
                 </plugin>
 
                 <plugin>
+                    <groupId>com.mycila.maven-license-plugin</groupId>
+                    <artifactId>maven-license-plugin</artifactId>
+                    <version>1.9.0</version>
+                    <configuration>
+                        <skipExistingHeaders>true</skipExistingHeaders>
+                        <header>license-header.txt</header>
+                        <mapping>
+                            <java>SLASHSTAR_STYLE</java>
+                        </mapping>
+                        <excludes>
+                            <exclude>**/README.txt</exclude>
+                            <exclude>**/config.properties</exclude>
+                            <exclude>**/log.properties</exclude>
+                            <exclude>**/src/*/resources/**</exclude>
+                            <exclude>**/*.html</exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>0.7.1.201405082137</version>
+                    <executions>
+                        <execution>
+                            <id>default</id>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>report</id>
+                            <phase>prepare-package</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                    <configuration>
+                        <skip>${platform.check.skip-jacoco}</skip>
+                    </configuration>
+                </plugin>
+
+                <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-site-plugin</artifactId>
                     <version>3.2</version>
                 </plugin>
 
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-gpg-plugin</artifactId>
+                    <version>1.4</version>
+                    <configuration>
+                        <useAgent>true</useAgent>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>sign-artifacts</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>sign</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
 
@@ -389,6 +490,16 @@
                 <groupId>com.ning.maven.plugins</groupId>
                 <artifactId>maven-duplicate-finder-plugin</artifactId>
             </plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+            </plugin>
         </plugins>
     </build>
 
@@ -410,73 +521,73 @@
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>bootstrap</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>configuration</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>concurrent</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>dbpool</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>discovery</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>event</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>jaxrs</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>http-server</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>http-client</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>json</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>jmx</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>launcher</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
                 <classifier>bin</classifier>
                 <type>tar.gz</type>
             </dependency>
@@ -484,55 +595,55 @@
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>log</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>node</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>reporting</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>reporting-client</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>stats</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>units</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>testing</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>trace-token</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <dependency>
                 <groupId>com.proofpoint.platform</groupId>
                 <artifactId>jmx-http</artifactId>
-                <version>0.82-SNAPSHOT</version>
+                <version>1.11-SNAPSHOT</version>
             </dependency>
 
             <!-- Java APIs -->
@@ -544,12 +655,12 @@
             <dependency>
                 <groupId>javax.servlet</groupId>
                 <artifactId>javax.servlet-api</artifactId>
-                <version>3.0.1</version>
+                <version>${dep.javax-servlet.version}</version>
             </dependency>
             <dependency>
                 <groupId>javax.validation</groupId>
                 <artifactId>validation-api</artifactId>
-                <version>1.0.0.GA</version>
+                <version>1.1.0.Final</version>
             </dependency>
 
             <dependency>
@@ -597,49 +708,78 @@
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
-                <version>1.0.11</version>
+                <version>${dep.logback.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-core</artifactId>
-                <version>1.0.11</version>
+                <version>${dep.logback.version}</version>
+            </dependency>
+
+            <!-- jersey -->
+            <dependency>
+                <groupId>javax.ws.rs</groupId>
+                <artifactId>javax.ws.rs-api</artifactId>
+                <version>2.0.1</version>
             </dependency>
 
             <dependency>
-                <groupId>com.sun.jersey</groupId>
-                <artifactId>jersey-core</artifactId>
-                <version>1.17.1</version>
+                <groupId>org.glassfish.jersey.core</groupId>
+                <artifactId>jersey-common</artifactId>
+                <version>${dep.jersey.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.glassfish.hk2.external</groupId>
+                        <artifactId>javax.inject</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.glassfish.hk2.external</groupId>
+                        <artifactId>aopalliance-repackaged</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <dependency>
-                <groupId>com.sun.jersey.contribs</groupId>
-                <artifactId>jersey-guice</artifactId>
-                <version>1.17.1</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.sun.jersey.contribs</groupId>
-                <artifactId>jersey-multipart</artifactId>
-                <version>1.17.1</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.sun.jersey</groupId>
+                <groupId>org.glassfish.jersey.core</groupId>
                 <artifactId>jersey-server</artifactId>
-                <version>1.17.1</version>
+                <version>${dep.jersey.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.glassfish.hk2.external</groupId>
+                        <artifactId>javax.inject</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>org.glassfish.jersey.containers</groupId>
+                <artifactId>jersey-container-servlet-core</artifactId>
+                <version>${dep.jersey.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.glassfish.hk2.external</groupId>
+                        <artifactId>javax.inject</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>javax.annotation</groupId>
+                <artifactId>javax.annotation-api</artifactId>
+                <version>1.2</version>
             </dependency>
 
             <dependency>
                 <groupId>org.weakref</groupId>
                 <artifactId>jmxutils</artifactId>
-                <version>1.14</version>
+                <version>1.18</version>
             </dependency>
 
             <dependency>
                 <groupId>joda-time</groupId>
                 <artifactId>joda-time</artifactId>
-                <version>2.1</version>
+                <version>2.5</version>
             </dependency>
 
             <dependency>
@@ -651,7 +791,7 @@
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
-                <version>14.0.1</version>
+                <version>18.0</version>
             </dependency>
 
             <dependency>
@@ -673,39 +813,55 @@
             </dependency>
 
             <dependency>
+                <groupId>com.google.auto.value</groupId>
+                <artifactId>auto-value</artifactId>
+                <version>1.0-rc1</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>com.google.code.findbugs</groupId>
+                        <artifactId>jsr305</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.ow2.asm</groupId>
+                        <artifactId>asm</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-annotations</artifactId>
-                <version>2.2.2</version>
+                <version>${dep.jackson.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-core</artifactId>
-                <version>2.2.2</version>
+                <version>${dep.jackson.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
-                <version>2.2.2</version>
+                <version>${dep.jackson.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>com.fasterxml.jackson.datatype</groupId>
                 <artifactId>jackson-datatype-guava</artifactId>
-                <version>2.2.2</version>
+                <version>${dep.jackson.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>com.fasterxml.jackson.datatype</groupId>
                 <artifactId>jackson-datatype-joda</artifactId>
-                <version>2.2.2</version>
+                <version>${dep.jackson.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>com.fasterxml.jackson.dataformat</groupId>
                 <artifactId>jackson-dataformat-smile</artifactId>
-                <version>2.2.2</version>
+                <version>${dep.jackson.version}</version>
             </dependency>
 
             <dependency>
@@ -757,16 +913,28 @@
             </dependency>
 
             <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-client</artifactId>
+                <version>${dep.jetty.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-io</artifactId>
+                <version>${dep.jetty.version}</version>
+            </dependency>
+
+            <dependency>
                 <groupId>com.google.code.findbugs</groupId>
                 <artifactId>annotations</artifactId>
-                <version>2.0.1</version>
+                <version>2.0.3</version>
             </dependency>
 
             <!-- Testing -->
             <dependency>
                 <groupId>org.testng</groupId>
                 <artifactId>testng</artifactId>
-                <version>6.8.1</version>
+                <version>6.8.7</version>
                 <exclusions>
                     <exclusion>
                         <groupId>junit</groupId>
@@ -778,7 +946,7 @@
             <dependency>
                 <groupId>org.mockito</groupId>
                 <artifactId>mockito-core</artifactId>
-                <version>1.9.5</version>
+                <version>1.10.8</version>
             </dependency>
 
             <dependency>
@@ -806,6 +974,7 @@
             <properties>
                 <skipTests>true</skipTests>
                 <!-- tests run in the preparation step of the release -->
+                <platform.check.skip-extended>true</platform.check.skip-extended>
             </properties>
             <build>
                 <plugins>
@@ -813,22 +982,10 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-javadoc-plugin</artifactId>
                     </plugin>
+
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
-                        <version>1.4</version>
-                        <executions>
-                            <execution>
-                                <id>sign-artifacts</id>
-                                <phase>verify</phase>
-                                <goals>
-                                    <goal>sign</goal>
-                                </goals>
-                                <configuration>
-                                    <useAgent>true</useAgent>
-                                </configuration>
-                            </execution>
-                        </executions>
                     </plugin>
                 </plugins>
             </build>

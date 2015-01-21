@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 Proofpoint, Inc.
+ * Copyright 2014 Proofpoint, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,8 @@ import com.google.common.base.Ticker;
 import org.mockito.ArgumentCaptor;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
-import org.weakref.jmx.MBeanExporter;
+import org.weakref.jmx.ObjectNameBuilder;
 
-import javax.management.ObjectName;
 import javax.validation.constraints.NotNull;
 import java.util.concurrent.TimeUnit;
 
@@ -34,7 +33,6 @@ import static org.testng.Assert.assertSame;
 
 public class TestReportCollectionFactory
 {
-    private MBeanExporter mBeanExporter;
     private ReportExporter reportExporter;
     private TestTicker ticker;
     private ReportCollectionFactory reportCollectionFactory;
@@ -42,10 +40,9 @@ public class TestReportCollectionFactory
     @BeforeMethod
     public void setup()
     {
-        mBeanExporter = mock(MBeanExporter.class);
         reportExporter = mock(ReportExporter.class);
         ticker = new TestTicker();
-        reportCollectionFactory = new ReportCollectionFactory(mBeanExporter, reportExporter, ticker);
+        reportCollectionFactory = new ReportCollectionFactory(reportExporter, ticker);
     }
 
     @Test
@@ -53,18 +50,14 @@ public class TestReportCollectionFactory
             throws Exception
     {
         KeyedDistribution keyedDistribution = reportCollectionFactory.createReportCollection(KeyedDistribution.class);
-        keyedDistribution.add("value", false);
+        SomeObject someObject = keyedDistribution.add("value", false);
 
         ArgumentCaptor<String> stringCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<ObjectName> objectNameCaptor = ArgumentCaptor.forClass(ObjectName.class);
-        ArgumentCaptor<SomeObject> mbeanCaptor = ArgumentCaptor.forClass(SomeObject.class);
         ArgumentCaptor<SomeObject> reportCaptor = ArgumentCaptor.forClass(SomeObject.class);
 
-        verify(mBeanExporter).export(stringCaptor.capture(), mbeanCaptor.capture());
+        verify(reportExporter).export(stringCaptor.capture(), reportCaptor.capture());
         assertEquals(stringCaptor.getValue(), "com.proofpoint.reporting:type=KeyedDistribution,name=Add,foo=value,bar=false");
-        verify(reportExporter).export(objectNameCaptor.capture(), reportCaptor.capture());
-        assertEquals(objectNameCaptor.getValue().getCanonicalName(), "com.proofpoint.reporting:bar=false,foo=value,name=Add,type=KeyedDistribution");
-        assertSame(mbeanCaptor.getValue(), reportCaptor.getValue());
+        assertSame(reportCaptor.getValue(), someObject);
     }
 
     @Test
@@ -72,18 +65,14 @@ public class TestReportCollectionFactory
             throws Exception
     {
         KeyedDistribution keyedDistribution = reportCollectionFactory.createReportCollection(KeyedDistribution.class);
-        keyedDistribution.add(null, false);
+        SomeObject someObject = keyedDistribution.add(null, false);
 
         ArgumentCaptor<String> stringCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<ObjectName> objectNameCaptor = ArgumentCaptor.forClass(ObjectName.class);
-        ArgumentCaptor<SomeObject> mbeanCaptor = ArgumentCaptor.forClass(SomeObject.class);
         ArgumentCaptor<SomeObject> reportCaptor = ArgumentCaptor.forClass(SomeObject.class);
 
-        verify(mBeanExporter).export(stringCaptor.capture(), mbeanCaptor.capture());
+        verify(reportExporter).export(stringCaptor.capture(), reportCaptor.capture());
         assertEquals(stringCaptor.getValue(), "com.proofpoint.reporting:type=KeyedDistribution,name=Add,bar=false");
-        verify(reportExporter).export(objectNameCaptor.capture(), reportCaptor.capture());
-        assertEquals(objectNameCaptor.getValue().getCanonicalName(), "com.proofpoint.reporting:bar=false,name=Add,type=KeyedDistribution");
-        assertSame(mbeanCaptor.getValue(), reportCaptor.getValue());
+        assertSame(reportCaptor.getValue(), someObject);
     }
 
     @Test
@@ -98,24 +87,41 @@ public class TestReportCollectionFactory
         ticker.advance(59, TimeUnit.SECONDS);
         keyedDistribution.add("value", true);
 
-        verify(mBeanExporter, never()).unexport(any(String.class));
-        verify(reportExporter, never()).unexport(any(ObjectName.class));
+        verify(reportExporter, never()).unexport(any(String.class));
 
         ticker.advance(1, TimeUnit.SECONDS);
         keyedDistribution.add("value2", true);
 
         ArgumentCaptor<String> stringCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<ObjectName> objectNameCaptor = ArgumentCaptor.forClass(ObjectName.class);
 
-        verify(mBeanExporter).unexport(stringCaptor.capture());
+        verify(reportExporter).unexport(stringCaptor.capture());
         assertEquals(stringCaptor.getValue(), "com.proofpoint.reporting:type=KeyedDistribution,name=Add,foo=value,bar=false");
-        verify(reportExporter).unexport(objectNameCaptor.capture());
-        assertEquals(objectNameCaptor.getValue().getCanonicalName(), "com.proofpoint.reporting:bar=false,foo=value,name=Add,type=KeyedDistribution");
     }
 
     private interface KeyedDistribution
     {
         SomeObject add(@Key("foo") String key, @NotNull @Key("bar") boolean bool);
+    }
+
+    @Test
+    public void testNamedCollection()
+            throws Exception
+    {
+        String name = new ObjectNameBuilder(KeyedDistribution.class.getPackage().getName())
+                .withProperty("a", "fooval")
+                .withProperty("b", "with\"quote")
+                .withProperty("c", "with,comma")
+                .withProperty("d", "with\\backslash")
+                .build();
+        KeyedDistribution keyedDistribution = reportCollectionFactory.createReportCollection(KeyedDistribution.class, name);
+        SomeObject someObject = keyedDistribution.add("value", false);
+
+        ArgumentCaptor<String> stringCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<SomeObject> reportCaptor = ArgumentCaptor.forClass(SomeObject.class);
+
+        verify(reportExporter).export(stringCaptor.capture(), reportCaptor.capture());
+        assertEquals(stringCaptor.getValue(), "com.proofpoint.reporting:a=fooval,b=\"with\\\"quote\",c=\"with,comma\",d=with\\backslash,name=Add,foo=value,bar=false");
+        assertSame(reportCaptor.getValue(), someObject);
     }
 
     @Test(expectedExceptions = RuntimeException.class,
@@ -140,6 +146,18 @@ public class TestReportCollectionFactory
     private interface NotConstructable
     {
         ConstructorNeedsArgument add(@Key("foo") String key, @Key("bar") boolean bool);
+    }
+
+    @Test(expectedExceptions = RuntimeException.class,
+            expectedExceptionsMessageRegExp = "com\\.proofpoint\\.reporting\\.TestReportCollectionFactory\\$MissingParameters\\.add\\(\\) has no parameters")
+    public void testNoParameters()
+    {
+        reportCollectionFactory.createReportCollection(MissingParameters.class);
+    }
+
+    private interface MissingParameters
+    {
+        SomeObject add();
     }
 
     public static class SomeObject

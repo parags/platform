@@ -52,21 +52,25 @@ public class HttpClientBinder
     {
         checkNotNull(name, "name is null");
         checkNotNull(annotation, "annotation is null");
-        return createBindingBuilder(new HttpClientModule(name, annotation, rootBinder));
+        return createBindingBuilder(new AsyncHttpClientModule(name, annotation, rootBinder));
     }
 
+    private HttpClientBindingBuilder createBindingBuilder(AsyncHttpClientModule module)
+    {
+        binder.install(module);
+        return new HttpClientBindingBuilder(module,
+                newSetBinder(binder, HttpRequestFilter.class, module.getFilterQualifier()));
+    }
+
+    /**
+     * @deprecated Use {@link #bindHttpClient(String, Class)}
+     */
+    @Deprecated
     public HttpClientAsyncBindingBuilder bindAsyncHttpClient(String name, Class<? extends Annotation> annotation)
     {
         checkNotNull(name, "name is null");
         checkNotNull(annotation, "annotation is null");
         return createAsyncBindingBuilder(new AsyncHttpClientModule(name, annotation, rootBinder));
-    }
-
-    private HttpClientBindingBuilder createBindingBuilder(AbstractHttpClientModule module)
-    {
-        binder.install(module);
-        return new HttpClientBindingBuilder(module,
-                newSetBinder(binder, HttpRequestFilter.class, module.getFilterQualifier()));
     }
 
     private HttpClientAsyncBindingBuilder createAsyncBindingBuilder(AsyncHttpClientModule module)
@@ -77,57 +81,39 @@ public class HttpClientBinder
     }
 
     public static class HttpClientBindingBuilder
-        extends AbstractHttpClientBindingBuilder<HttpClientBindingBuilder>
+        extends HttpClientAsyncBindingBuilder
     {
-        private HttpClientBindingBuilder(AbstractHttpClientModule module, Multibinder<HttpRequestFilter> multibinder)
+        public HttpClientBindingBuilder(AsyncHttpClientModule module, Multibinder<HttpRequestFilter> multibinder)
         {
             super(module, multibinder);
         }
     }
 
     public static class HttpClientAsyncBindingBuilder
-    extends AbstractHttpClientBindingBuilder<HttpClientAsyncBindingBuilder>
     {
         private final AsyncHttpClientModule module;
-
-        private HttpClientAsyncBindingBuilder(AsyncHttpClientModule module, Multibinder<HttpRequestFilter> multibinder)
-        {
-            super(module, multibinder);
-            this.module = module;
-        }
-
-        public HttpClientAsyncBindingBuilder withPrivateIoThreadPool()
-        {
-            module.withPrivateIoThreadPool();
-            return this;
-        }
-    }
-
-    public abstract static class AbstractHttpClientBindingBuilder<T extends AbstractHttpClientBindingBuilder<T>>
-    {
-        protected final AbstractHttpClientModule module;
         private final Multibinder<HttpRequestFilter> multibinder;
 
-        private AbstractHttpClientBindingBuilder(AbstractHttpClientModule module, Multibinder<HttpRequestFilter> multibinder)
+        private HttpClientAsyncBindingBuilder(AsyncHttpClientModule module, Multibinder<HttpRequestFilter> multibinder)
         {
             this.module = module;
             this.multibinder = multibinder;
         }
 
         @SuppressWarnings("unchecked")
-        public T withAlias(Class<? extends Annotation> alias)
+        public HttpClientAsyncBindingBuilder withAlias(Class<? extends Annotation> alias)
         {
             module.addAlias(alias);
-            return (T) this;
+            return this;
         }
 
         @SuppressWarnings("unchecked")
-        public T withAliases(Collection<Class<? extends Annotation>> aliases)
+        public HttpClientAsyncBindingBuilder withAliases(Collection<Class<? extends Annotation>> aliases)
         {
             for (Class<? extends Annotation> annotation : aliases) {
                 module.addAlias(annotation);
             }
-            return (T) this;
+            return this;
         }
 
         public LinkedBindingBuilder<HttpRequestFilter> addFilterBinding()
@@ -136,15 +122,21 @@ public class HttpClientBinder
         }
 
         @SuppressWarnings("unchecked")
-        public T withFilter(Class<? extends HttpRequestFilter> filterClass)
+        public HttpClientAsyncBindingBuilder withFilter(Class<? extends HttpRequestFilter> filterClass)
         {
             multibinder.addBinding().to(filterClass);
-            return (T) this;
+            return this;
         }
 
-        public T withTracing()
+        public HttpClientAsyncBindingBuilder withTracing()
         {
             return withFilter(TraceTokenRequestFilter.class);
+        }
+
+        public HttpClientAsyncBindingBuilder withPrivateIoThreadPool()
+        {
+            module.withPrivateIoThreadPool();
+            return this;
         }
     }
 }

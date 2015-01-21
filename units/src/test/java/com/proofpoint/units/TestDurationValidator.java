@@ -26,6 +26,7 @@ import javax.validation.ConstraintViolation;
 import javax.validation.Validation;
 import javax.validation.ValidationException;
 import javax.validation.Validator;
+import javax.validation.metadata.ConstraintDescriptor;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -47,7 +48,6 @@ public class TestDurationValidator
         assertTrue(maxValidator.isValid(new Duration(5, TimeUnit.SECONDS), new MockContext()));
         assertFalse(maxValidator.isValid(new Duration(6, TimeUnit.SECONDS), new MockContext()));
     }
-
 
     @Test
     public void testMinDurationValidator()
@@ -104,7 +104,9 @@ public class TestDurationValidator
         assertTrue(violations.isEmpty());
     }
 
+    // TODO: remove casts and @SuppressWarnings after moving to Java 8
     @Test
+    @SuppressWarnings("unchecked")
     public void testFailsMaxDurationConstraint()
     {
         ConstrainedDuration object = new ConstrainedDuration(new Duration(11, TimeUnit.SECONDS));
@@ -112,11 +114,12 @@ public class TestDurationValidator
         assertEquals(violations.size(), 2);
 
         for (ConstraintViolation<ConstrainedDuration> violation : violations) {
-            Assertions.assertInstanceOf(violation.getConstraintDescriptor().getAnnotation(), MaxDuration.class);
+            Assertions.assertInstanceOf(((ConstraintDescriptor<MaxDuration>) violation.getConstraintDescriptor()).getAnnotation(), MaxDuration.class);
         }
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     public void testFailsMinDurationConstraint()
     {
         ConstrainedDuration object = new ConstrainedDuration(new Duration(1, TimeUnit.SECONDS));
@@ -124,7 +127,7 @@ public class TestDurationValidator
         assertEquals(violations.size(), 2);
 
         for (ConstraintViolation<ConstrainedDuration> violation : violations) {
-            Assertions.assertInstanceOf(violation.getConstraintDescriptor().getAnnotation(), MinDuration.class);
+            Assertions.assertInstanceOf(((ConstraintDescriptor<MinDuration>) violation.getConstraintDescriptor()).getAnnotation(), MinDuration.class);
         }
     }
 
@@ -148,8 +151,15 @@ public class TestDurationValidator
         {
             throw new UnsupportedOperationException();
         }
+
+        @Override
+        public <T> T unwrap(Class<T> type)
+        {
+            throw new UnsupportedOperationException();
+        }
     }
 
+    @SuppressWarnings("UnusedDeclaration")
     public static class ConstrainedDuration
     {
         private final Duration duration;
@@ -179,6 +189,7 @@ public class TestDurationValidator
         }
     }
 
+    @SuppressWarnings("UnusedDeclaration")
     public static class NullMinAnnotation
     {
         @MinDuration("1s")
@@ -188,6 +199,7 @@ public class TestDurationValidator
         }
     }
 
+    @SuppressWarnings("UnusedDeclaration")
     public static class NullMaxAnnotation
     {
         @MaxDuration("1s")
@@ -197,6 +209,7 @@ public class TestDurationValidator
         }
     }
 
+    @SuppressWarnings("UnusedDeclaration")
     public static class BrokenMinAnnotation
     {
         @MinDuration("broken")
@@ -206,6 +219,7 @@ public class TestDurationValidator
         }
     }
 
+    @SuppressWarnings("UnusedDeclaration")
     public static class BrokenMaxAnnotation
     {
         @MinDuration("broken")
@@ -214,5 +228,4 @@ public class TestDurationValidator
             return new Duration(10, TimeUnit.SECONDS);
         }
     }
-
 }

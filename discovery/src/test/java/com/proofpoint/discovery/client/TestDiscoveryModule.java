@@ -18,14 +18,27 @@ package com.proofpoint.discovery.client;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.google.inject.Key;
+import com.proofpoint.bootstrap.Bootstrap;
+import com.proofpoint.bootstrap.LifeCycleManager;
 import com.proofpoint.configuration.ConfigurationFactory;
 import com.proofpoint.configuration.ConfigurationModule;
 import com.proofpoint.discovery.client.announce.Announcer;
 import com.proofpoint.discovery.client.announce.DiscoveryAnnouncementClient;
 import com.proofpoint.json.JsonModule;
+import com.proofpoint.node.ApplicationNameModule;
 import com.proofpoint.node.testing.TestingNodeModule;
+import com.proofpoint.reporting.ReportingModule;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.weakref.jmx.testing.TestingMBeanModule;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+
+import static com.proofpoint.bootstrap.Bootstrap.bootstrapApplication;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class TestDiscoveryModule
 {
@@ -34,9 +47,12 @@ public class TestDiscoveryModule
             throws Exception
     {
         Injector injector = Guice.createInjector(
+                new ApplicationNameModule("test-application"),
                 new ConfigurationModule(new ConfigurationFactory(ImmutableMap.of("testing.discovery.uri", "fake://server"))),
                 new JsonModule(),
                 new TestingNodeModule(),
+                new TestingMBeanModule(),
+                new ReportingModule(),
                 new DiscoveryModule()
         );
 
@@ -47,4 +63,27 @@ public class TestDiscoveryModule
         Assert.assertNotNull(injector.getInstance(Announcer.class));
     }
 
+    @Test
+    public void testExecutorShutdown()
+            throws Exception
+    {
+        Bootstrap app = bootstrapApplication("test-application")
+                .doNotInitializeLogging()
+                .withModules(
+                        new JsonModule(),
+                        new TestingNodeModule(),
+                        new DiscoveryModule(),
+                        new ReportingModule(),
+                        new TestingMBeanModule()
+                );
+
+        Injector injector = app.initialize();
+
+        ExecutorService executor = injector.getInstance(Key.get(ScheduledExecutorService.class, ForDiscoveryClient.class));
+        LifeCycleManager lifeCycleManager = injector.getInstance(LifeCycleManager.class);
+
+        assertFalse(executor.isShutdown());
+        lifeCycleManager.stop();
+        assertTrue(executor.isShutdown());
+    }
 }

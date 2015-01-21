@@ -8,7 +8,7 @@
     <parent>
         <groupId>com.proofpoint.platform</groupId>
         <artifactId>platform</artifactId>
-        <version>0.82-SNAPSHOT</version>
+        <version>1.11-SNAPSHOT</version>
     </parent>
 
     <dependencies>
@@ -59,11 +59,6 @@
 
         <dependency>
             <groupId>com.proofpoint.platform</groupId>
-            <artifactId>http-client</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>com.proofpoint.platform</groupId>
             <artifactId>testing</artifactId>
         </dependency>
 
@@ -100,12 +95,16 @@
         <dependency>
             <groupId>org.eclipse.jetty</groupId>
             <artifactId>jetty-io</artifactId>
-            <version>${dep.jetty.version}</version>
         </dependency>
 
         <dependency>
             <groupId>javax.servlet</groupId>
             <artifactId>javax.servlet-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>javax.ws.rs</groupId>
+            <artifactId>javax.ws.rs-api</artifactId>
         </dependency>
 
         <dependency>
@@ -157,6 +156,19 @@
         <dependency>
             <groupId>joda-time</groupId>
             <artifactId>joda-time</artifactId>
+        </dependency>
+
+        <!-- for testing -->
+        <dependency>
+            <groupId>com.proofpoint.platform</groupId>
+            <artifactId>bootstrap</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.proofpoint.platform</groupId>
+            <artifactId>http-client</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>

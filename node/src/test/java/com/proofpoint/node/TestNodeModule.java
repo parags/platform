@@ -33,9 +33,10 @@ public class TestNodeModule
         long testStartTime = System.currentTimeMillis();
 
         ConfigurationFactory configFactory = new ConfigurationFactory(ImmutableMap.<String, String>of("node.environment", "environment"));
-        Injector injector = Guice.createInjector(new NodeModule(), new ConfigurationModule(configFactory));
+        Injector injector = Guice.createInjector(new NodeModule(), new ConfigurationModule(configFactory), new ApplicationNameModule("test-application"));
         NodeInfo nodeInfo = injector.getInstance(NodeInfo.class);
         Assert.assertNotNull(nodeInfo);
+        Assert.assertEquals(nodeInfo.getApplication(), "test-application");
         Assert.assertEquals(nodeInfo.getEnvironment(), "environment");
         Assert.assertEquals(nodeInfo.getPool(), "general");
         Assert.assertNotNull(nodeInfo.getNodeId());
@@ -66,8 +67,6 @@ public class TestNodeModule
         String pool = "pool";
         String nodeId = "nodeId";
         String location = "location";
-        String binarySpec = "binary";
-        String configSpec = "config";
         String publicIp = "10.0.0.22";
         String internalHostname = "internal.hostname";
         ConfigurationFactory configFactory = new ConfigurationFactory(ImmutableMap.<String, String>builder()
@@ -77,20 +76,19 @@ public class TestNodeModule
                 .put("node.ip", publicIp)
                 .put("node.hostname", internalHostname)
                 .put("node.location", location)
-                .put("node.binary-spec", binarySpec)
-                .put("node.config-spec", configSpec)
                 .build()
         );
 
-        Injector injector = Guice.createInjector(new NodeModule(), new ConfigurationModule(configFactory));
+        Injector injector = Guice.createInjector(new NodeModule(), new ConfigurationModule(configFactory), new ApplicationNameModule("test-application"));
         NodeInfo nodeInfo = injector.getInstance(NodeInfo.class);
         Assert.assertNotNull(nodeInfo);
+        Assert.assertEquals(nodeInfo.getApplication(), "test-application");
         Assert.assertEquals(nodeInfo.getEnvironment(), environment);
         Assert.assertEquals(nodeInfo.getPool(), pool);
         Assert.assertEquals(nodeInfo.getNodeId(), nodeId);
         Assert.assertEquals(nodeInfo.getLocation(), location);
-        Assert.assertEquals(nodeInfo.getBinarySpec(), binarySpec);
-        Assert.assertEquals(nodeInfo.getConfigSpec(), configSpec);
+        Assert.assertNull(nodeInfo.getBinarySpec());
+        Assert.assertNull(nodeInfo.getConfigSpec());
         Assert.assertNotNull(nodeInfo.getInstanceId());
 
         Assertions.assertNotEquals(nodeInfo.getNodeId(), nodeInfo.getInstanceId());
@@ -103,4 +101,5 @@ public class TestNodeModule
         // make sure toString doesn't throw an exception
         Assert.assertNotNull(nodeInfo.toString());
     }
+
 }

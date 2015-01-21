@@ -16,7 +16,6 @@
 package com.proofpoint.node;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.net.InetAddresses;
 import com.google.inject.Inject;
@@ -35,17 +34,19 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 @Singleton
 public class NodeInfo
 {
     private static final Pattern HOST_EXCEPTION_MESSAGE_PATTERN = Pattern.compile("([-_a-zA-Z0-9]+):.*");
 
+    private final String application;
     private final String environment;
     private final String pool;
     private final String nodeId;
     private final String location;
-    private final String binarySpec;
-    private final String configSpec;
     private final String instanceId = UUID.randomUUID().toString();
     private final InetAddress internalIp;
     private final String internalHostname;
@@ -55,26 +56,30 @@ public class NodeInfo
 
     public NodeInfo(String environment)
     {
-        this(new NodeConfig().setEnvironment(environment));
+        this("test-application", new NodeConfig().setEnvironment(environment));
     }
 
     @Inject
-    public NodeInfo(NodeConfig config)
+    public NodeInfo(@ApplicationName String application, NodeConfig config)
     {
-        this(config.getEnvironment(),
+        this(application,
+                config.getEnvironment(),
                 config.getPool(),
                 config.getNodeId(),
                 config.getNodeInternalIp(),
                 config.getNodeInternalHostname(),
                 config.getNodeBindIp(),
                 config.getNodeExternalAddress(),
-                config.getLocation(),
-                config.getBinarySpec(),
-                config.getConfigSpec()
+                config.getLocation()
         );
     }
 
-    public NodeInfo(String environment,
+    /**
+     * @deprecated Replaced by {@link #NodeInfo(String, String, String, String, InetAddress, String, InetAddress, String, String)}.
+     */
+    @Deprecated
+    public NodeInfo(String application,
+            String environment,
             String pool,
             String nodeId,
             InetAddress internalIp,
@@ -85,15 +90,31 @@ public class NodeInfo
             String binarySpec,
             String configSpec)
     {
-        Preconditions.checkNotNull(environment, "environment is null");
-        Preconditions.checkNotNull(pool, "pool is null");
-        Preconditions.checkArgument(environment.matches(NodeConfig.ENV_REGEXP), String.format("environment '%s' is invalid", environment));
-        Preconditions.checkArgument(pool.matches(NodeConfig.POOL_REGEXP), String.format("pool '%s' is invalid", pool));
+        this(application, environment, pool, nodeId, internalIp, internalHostname, bindIp, externalAddress, location);
+    }
 
+    public NodeInfo(String application,
+            String environment,
+            String pool,
+            String nodeId,
+            InetAddress internalIp,
+            String internalHostname,
+            InetAddress bindIp,
+            String externalAddress,
+            String location)
+    {
+        checkNotNull(application, "application is null");
+        checkNotNull(environment, "environment is null");
+        checkNotNull(pool, "pool is null");
+        checkArgument(environment.matches(NodeConfig.ENV_REGEXP), "environment '%s' is invalid", environment);
+        checkArgument(pool.matches(NodeConfig.POOL_REGEXP), "pool '%s' is invalid", pool);
+
+        this.application = application;
         this.environment = environment;
         this.pool = pool;
 
         if (nodeId != null) {
+            checkArgument(nodeId.matches(NodeConfig.ID_REGEXP), "nodeId '%s' is invalid", nodeId);
             this.nodeId = nodeId;
         }
         else {
@@ -107,9 +128,6 @@ public class NodeInfo
             this.location = "/" + this.nodeId;
         }
 
-        this.binarySpec = binarySpec;
-        this.configSpec = configSpec;
-
         if (internalIp != null) {
             this.internalIp = internalIp;
         }
@@ -118,7 +136,7 @@ public class NodeInfo
         }
 
         if (internalHostname != null) {
-            Preconditions.checkArgument(internalHostname.matches(NodeConfig.HOSTNAME_REGEXP), String.format("hostname '%s' is invalid", environment));
+            checkArgument(internalHostname.equals("localhost") || internalHostname.matches(NodeConfig.HOSTNAME_REGEXP), String.format("hostname '%s' is invalid", internalHostname));
             this.internalHostname = internalHostname;
         }
         else {
@@ -138,6 +156,15 @@ public class NodeInfo
         else {
             this.externalAddress = InetAddresses.toAddrString(this.internalIp);
         }
+    }
+
+    /**
+     * The name of this application server
+     */
+    @Managed
+    public String getApplication()
+    {
+        return application;
     }
 
     /**
@@ -179,26 +206,29 @@ public class NodeInfo
 
     /**
      * Binary this JavaVM is running.
+     * @deprecated Always null.
      */
-    @Managed
+    @Deprecated
     public String getBinarySpec()
     {
-        return binarySpec;
+        return null;
     }
 
     /**
      * Configuration this JavaVM is running.
+     * @deprecated Always null.
      */
-    @Managed
+    @Deprecated
     public String getConfigSpec()
     {
-        return configSpec;
+        return null;
     }
 
     /**
      * The unique id of this JavaVM instance.  This id will change every time the vm is restarted.
      */
     @Managed
+    @Deprecated
     public String getInstanceId()
     {
         return instanceId;

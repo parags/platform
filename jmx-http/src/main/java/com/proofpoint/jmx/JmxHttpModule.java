@@ -34,7 +34,6 @@ import com.google.inject.Binder;
 import com.google.inject.Inject;
 import com.google.inject.Module;
 import com.google.inject.Provider;
-import com.google.inject.Scopes;
 import com.proofpoint.discovery.client.announce.ServiceAnnouncement;
 import com.proofpoint.discovery.client.announce.ServiceAnnouncement.ServiceAnnouncementBuilder;
 import com.proofpoint.http.server.HttpServerInfo;
@@ -55,6 +54,7 @@ import java.util.Set;
 
 import static com.proofpoint.discovery.client.DiscoveryBinder.discoveryBinder;
 import static com.proofpoint.discovery.client.announce.ServiceAnnouncement.serviceAnnouncement;
+import static com.proofpoint.jaxrs.JaxrsBinder.jaxrsBinder;
 import static com.proofpoint.json.JsonBinder.jsonBinder;
 
 @Beta
@@ -63,10 +63,9 @@ public class JmxHttpModule implements Module
     @Override
     public void configure(Binder binder)
     {
-        binder.requireExplicitBindings();
         binder.disableCircularProxies();
 
-        binder.bind(MBeanResource.class).in(Scopes.SINGLETON);
+        jaxrsBinder(binder).bindAdmin(MBeanResource.class);
         jsonBinder(binder).addSerializerBinding(InetAddress.class).toInstance(ToStringSerializer.instance);
         jsonBinder(binder).addSerializerBinding(ObjectName.class).toInstance(ToStringSerializer.instance);
         jsonBinder(binder).addSerializerBinding(OpenType.class).toInstance(ToStringSerializer.instance);
@@ -99,10 +98,10 @@ public class JmxHttpModule implements Module
                     return ObjectName.getInstance(jsonParser.getText());
                 }
                 catch (MalformedObjectNameException e) {
-                    throw context.instantiationException(getValueClass(), e);
+                    throw context.instantiationException(handledType(), e);
                 }
             }
-            throw context.mappingException(getValueClass());
+            throw context.mappingException(handledType());
         }
     }
 
@@ -136,7 +135,7 @@ public class JmxHttpModule implements Module
         {
             // List<Map<String, Object>
             ObjectNode o = createSchemaNode("array", true);
-            o.put("items", createSchemaNode("object", true));
+            o.set("items", createSchemaNode("object", true));
             return o;
         }
 

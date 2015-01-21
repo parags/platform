@@ -16,44 +16,40 @@
 package com.proofpoint.http.server;
 
 import com.google.common.base.Charsets;
-import com.google.common.base.Joiner;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
+import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
 import com.google.common.net.HttpHeaders;
 import com.google.common.net.MediaType;
 import com.google.inject.Binder;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
-import com.google.inject.Key;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
 import com.google.inject.multibindings.Multibinder;
 import com.proofpoint.configuration.ConfigurationFactory;
 import com.proofpoint.configuration.ConfigurationModule;
-import com.proofpoint.event.client.EventClient;
-import com.proofpoint.event.client.InMemoryEventClient;
-import com.proofpoint.event.client.InMemoryEventModule;
 import com.proofpoint.event.client.NullEventModule;
-import com.proofpoint.http.client.ApacheHttpClient;
 import com.proofpoint.http.client.HttpClient;
 import com.proofpoint.http.client.HttpStatus;
 import com.proofpoint.http.client.HttpUriBuilder;
 import com.proofpoint.http.client.StatusResponseHandler.StatusResponse;
 import com.proofpoint.http.client.StringResponseHandler.StringResponse;
+import com.proofpoint.http.client.jetty.JettyHttpClient;
+import com.proofpoint.log.Logging;
+import com.proofpoint.node.ApplicationNameModule;
 import com.proofpoint.node.NodeInfo;
-import com.proofpoint.node.NodeModule;
+import com.proofpoint.node.testing.TestingNodeModule;
 import com.proofpoint.reporting.ReportingModule;
 import com.proofpoint.testing.FileUtils;
-import com.proofpoint.tracetoken.TraceTokenModule;
-import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.Test;
-import org.weakref.jmx.guice.MBeanModule;
+import org.weakref.jmx.testing.TestingMBeanModule;
 
-import javax.management.MBeanServer;
 import javax.servlet.Filter;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
@@ -63,23 +59,15 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
-import static com.google.common.net.HttpHeaders.REFERER;
-import static com.google.common.net.HttpHeaders.USER_AGENT;
 import static com.google.common.net.MediaType.PLAIN_TEXT_UTF_8;
 import static com.proofpoint.http.client.HttpUriBuilder.uriBuilderFrom;
 import static com.proofpoint.http.client.Request.Builder.prepareGet;
-import static com.proofpoint.http.client.Request.Builder.preparePost;
-import static com.proofpoint.http.client.StaticBodyGenerator.createStaticBodyGenerator;
 import static com.proofpoint.http.client.StatusResponseHandler.createStatusResponseHandler;
 import static com.proofpoint.http.client.StringResponseHandler.createStringResponseHandler;
 import static com.proofpoint.http.server.HttpServerBinder.httpServerBinder;
-import static java.util.Collections.nCopies;
-import static org.mockito.Mockito.mock;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
@@ -88,6 +76,12 @@ import static org.testng.Assert.assertTrue;
 public class TestHttpServerModule
 {
     private File tempDir;
+
+    @BeforeSuite
+    public void setupSuite()
+    {
+        Logging.initialize();
+    }
 
     @BeforeMethod
     public void setup()
@@ -108,17 +102,17 @@ public class TestHttpServerModule
             throws Exception
     {
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
-                .put("node.environment", "test")
                 .put("http-server.http.port", "0")
                 .put("http-server.log.path", new File(tempDir, "http-request.log").getAbsolutePath())
                 .build();
 
         ConfigurationFactory configFactory = new ConfigurationFactory(properties);
         Injector injector = Guice.createInjector(new HttpServerModule(),
-                new NodeModule(),
+                new ApplicationNameModule("test-application"),
+                new TestingNodeModule(),
                 new ConfigurationModule(configFactory),
                 new NullEventModule(),
-                new MBeanModule(),
+                new TestingMBeanModule(),
                 new ReportingModule(),
                 new Module()
                 {
@@ -126,7 +120,7 @@ public class TestHttpServerModule
                     public void configure(Binder binder)
                     {
                         binder.bind(Servlet.class).annotatedWith(TheServlet.class).to(DummyServlet.class);
-                        binder.bind(MBeanServer.class).toInstance(mock(MBeanServer.class));
+                        binder.bind(Servlet.class).annotatedWith(TheAdminServlet.class).to(DummyServlet.class);
                     }
                 });
 
@@ -139,17 +133,17 @@ public class TestHttpServerModule
             throws Exception
     {
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
-                .put("node.environment", "test")
                 .put("http-server.http.port", "0")
                 .put("http-server.log.path", new File(tempDir, "http-request.log").getAbsolutePath())
                 .build();
 
         ConfigurationFactory configFactory = new ConfigurationFactory(properties);
         Injector injector = Guice.createInjector(new HttpServerModule(),
-                new NodeModule(),
+                new ApplicationNameModule("test-application"),
+                new TestingNodeModule(),
                 new ConfigurationModule(configFactory),
                 new NullEventModule(),
-                new MBeanModule(),
+                new TestingMBeanModule(),
                 new ReportingModule(),
                 new Module()
                 {
@@ -157,7 +151,7 @@ public class TestHttpServerModule
                     public void configure(Binder binder)
                     {
                         binder.bind(Servlet.class).annotatedWith(TheServlet.class).to(DummyServlet.class);
-                        binder.bind(MBeanServer.class).toInstance(mock(MBeanServer.class));
+                        binder.bind(Servlet.class).annotatedWith(TheAdminServlet.class).to(DummyServlet.class);
                     }
                 });
 
@@ -183,17 +177,17 @@ public class TestHttpServerModule
             throws Exception
     {
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
-                .put("node.environment", "test")
                 .put("http-server.http.port", "0")
                 .put("http-server.log.path", new File(tempDir, "http-request.log").getAbsolutePath())
                 .build();
 
         ConfigurationFactory configFactory = new ConfigurationFactory(properties);
         Injector injector = Guice.createInjector(new HttpServerModule(),
-                new NodeModule(),
+                new ApplicationNameModule("test-application"),
+                new TestingNodeModule(),
                 new ConfigurationModule(configFactory),
                 new NullEventModule(),
-                new MBeanModule(),
+                new TestingMBeanModule(),
                 new ReportingModule(),
                 new Module()
                 {
@@ -201,7 +195,7 @@ public class TestHttpServerModule
                     public void configure(Binder binder)
                     {
                         binder.bind(Servlet.class).annotatedWith(TheServlet.class).to(DummyServlet.class);
-                        binder.bind(MBeanServer.class).toInstance(mock(MBeanServer.class));
+                        binder.bind(Servlet.class).annotatedWith(TheAdminServlet.class).to(DummyServlet.class);
                         Multibinder.newSetBinder(binder, Filter.class, TheServlet.class).addBinding().to(DummyFilter.class).in(Scopes.SINGLETON);
                         httpServerBinder(binder).bindResource("/", "webapp/user").withWelcomeFile("user-welcome.txt");
                         httpServerBinder(binder).bindResource("/", "webapp/user2");
@@ -215,8 +209,7 @@ public class TestHttpServerModule
         HttpServer server = injector.getInstance(HttpServer.class);
         server.start();
 
-        try {
-            HttpClient client = new ApacheHttpClient();
+        try (HttpClient client = new JettyHttpClient()) {
 
             // test servlet bound correctly
             URI httpUri = httpServerInfo.getHttpUri();
@@ -256,110 +249,6 @@ public class TestHttpServerModule
         assertEquals(data.getBody().trim(), contents);
     }
 
-    @Test
-    public void testHttpRequestEvent()
-            throws Exception
-    {
-        Map<String, String> properties = new ImmutableMap.Builder<String, String>()
-                .put("node.environment", "test")
-                .put("http-server.http.port", "0")
-                .put("http-server.log.path", new File(tempDir, "http-request.log").getAbsolutePath())
-                .build();
-
-        ConfigurationFactory configFactory = new ConfigurationFactory(properties);
-        Injector injector = Guice.createInjector(new HttpServerModule(),
-                new NodeModule(),
-                new ConfigurationModule(configFactory),
-                new InMemoryEventModule(),
-                new MBeanModule(),
-                new ReportingModule(),
-                new TraceTokenModule(),
-                new Module()
-                {
-                    @Override
-                    public void configure(Binder binder)
-                    {
-                        binder.bind(Servlet.class).annotatedWith(TheServlet.class).to(EchoServlet.class).in(Scopes.SINGLETON);
-                        binder.bind(MBeanServer.class).toInstance(mock(MBeanServer.class));
-                    }
-                });
-
-        HttpServerInfo httpServerInfo = injector.getInstance(HttpServerInfo.class);
-        InMemoryEventClient eventClient = (InMemoryEventClient) injector.getInstance(EventClient.class);
-        EchoServlet echoServlet = (EchoServlet) injector.getInstance(Key.get(Servlet.class, TheServlet.class));
-
-        HttpServer server = injector.getInstance(HttpServer.class);
-        server.start();
-
-        URI requestUri = httpServerInfo.getHttpUri().resolve("/my/path");
-        String userAgent = "my-user-agent";
-        String referrer = "http://www.google.com";
-        String token = "this is a trace token";
-        String requestBody = Joiner.on(" ").join(nCopies(50, "request"));
-        String requestContentType = "request/type";
-
-        int responseCode = 555;
-        String responseBody = Joiner.on(" ").join(nCopies(100, "response"));
-        String responseContentType = "response/type";
-
-        echoServlet.responseBody = responseBody;
-        echoServlet.responseStatusCode = responseCode;
-        echoServlet.responseHeaders.put("Content-Type", responseContentType);
-
-        long beforeRequest = System.currentTimeMillis();
-        long afterRequest;
-        try {
-            HttpClient client = new ApacheHttpClient();
-
-            // test servlet bound correctly
-            StringResponse response = client.execute(
-                    preparePost().setUri(requestUri)
-                            .addHeader(USER_AGENT, userAgent)
-                            .addHeader(CONTENT_TYPE, requestContentType)
-                            .addHeader(REFERER, referrer)
-                            .addHeader("X-Proofpoint-TraceToken", token)
-                            .setBodyGenerator(createStaticBodyGenerator(requestBody, Charsets.UTF_8))
-                            .build(),
-                    createStringResponseHandler());
-
-            afterRequest = System.currentTimeMillis();
-
-            assertEquals(response.getStatusCode(), responseCode);
-            assertEquals(response.getBody(), responseBody);
-            assertEquals(response.getHeader("Content-Type"), responseContentType);
-        }
-        finally {
-            server.stop();
-        }
-
-        List<Object> events = eventClient.getEvents();
-        Assert.assertEquals(events.size(), 1);
-        HttpRequestEvent event = (HttpRequestEvent) events.get(0);
-
-
-        Assert.assertEquals(event.getClientAddress(), echoServlet.remoteAddress);
-        Assert.assertEquals(event.getProtocol(), "http");
-        Assert.assertEquals(event.getMethod(), "POST");
-        Assert.assertEquals(event.getRequestUri(), requestUri.getPath());
-        Assert.assertNull(event.getUser());
-        Assert.assertEquals(event.getAgent(), userAgent);
-        Assert.assertEquals(event.getReferrer(), referrer);
-        Assert.assertEquals(event.getTraceToken(), token);
-
-        Assert.assertEquals(event.getRequestSize(), requestBody.length());
-        Assert.assertEquals(event.getRequestContentType(), requestContentType);
-
-        Assert.assertEquals(event.getResponseSize(), responseBody.length());
-        Assert.assertEquals(event.getResponseCode(), responseCode);
-        Assert.assertEquals(event.getResponseContentType(), responseContentType);
-
-        Assert.assertTrue(event.getTimeStamp().getMillis() >= beforeRequest);
-        Assert.assertTrue(event.getTimeToLastByte() <= afterRequest - beforeRequest);
-        Assert.assertNotNull(event.getTimeToFirstByte());
-        Assert.assertTrue(event.getTimeToDispatch() <= event.getTimeToFirstByte());
-        Assert.assertTrue(event.getTimeToFirstByte() <= event.getTimeToLastByte());
-    }
-
     private static final class EchoServlet extends HttpServlet
     {
         private int responseStatusCode = 300;
@@ -371,6 +260,8 @@ public class TestHttpServerModule
         protected void service(HttpServletRequest request, HttpServletResponse response)
                 throws ServletException, IOException
         {
+            ByteStreams.copy(request.getInputStream(), ByteStreams.nullOutputStream());
+
             remoteAddress = request.getRemoteAddr();
             for (Entry<String, String> entry : responseHeaders.entries()) {
                 response.addHeader(entry.getKey(), entry.getValue());

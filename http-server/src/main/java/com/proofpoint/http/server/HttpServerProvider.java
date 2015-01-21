@@ -20,7 +20,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Inject;
 import com.google.inject.Provider;
-import com.proofpoint.event.client.EventClient;
 import com.proofpoint.http.server.HttpServerBinder.HttpResourceBinding;
 import com.proofpoint.node.NodeInfo;
 import com.proofpoint.tracetoken.TraceTokenManager;
@@ -48,6 +47,7 @@ public class HttpServerProvider
     private final Servlet theServlet;
     private final Set<HttpResourceBinding> resources;
     private Map<String, String> servletInitParameters = ImmutableMap.of();
+    private final Servlet theAdminServlet;
     private Map<String, String> adminServletInitParameters = ImmutableMap.of();
     private MBeanServer mbeanServer;
     private LoginService loginService;
@@ -57,7 +57,6 @@ public class HttpServerProvider
     private final Set<Filter> adminFilters;
     private QueryStringFilter queryStringFilter;
     private TraceTokenManager traceTokenManager;
-    private final EventClient eventClient;
 
     @Inject
     public HttpServerProvider(HttpServerInfo httpServerInfo,
@@ -66,11 +65,11 @@ public class HttpServerProvider
             @TheServlet Servlet theServlet,
             @TheServlet Set<Filter> filters,
             @TheServlet Set<HttpResourceBinding> resources,
+            @TheAdminServlet Servlet theAdminServlet,
             @TheAdminServlet Set<Filter> adminFilters,
             RequestStats stats,
             DetailedRequestStats detailedRequestStats,
-            QueryStringFilter queryStringFilter,
-            EventClient eventClient)
+            QueryStringFilter queryStringFilter)
     {
         checkNotNull(httpServerInfo, "httpServerInfo is null");
         checkNotNull(nodeInfo, "nodeInfo is null");
@@ -78,11 +77,11 @@ public class HttpServerProvider
         checkNotNull(theServlet, "theServlet is null");
         checkNotNull(filters, "filters is null");
         checkNotNull(resources, "resources is null");
+        checkNotNull(theAdminServlet, "theAdminServlet is null");
         checkNotNull(adminFilters, "adminFilters is null");
         checkNotNull(stats, "stats is null");
         checkNotNull(detailedRequestStats, "detailedRequestStats is null");
         checkNotNull(queryStringFilter, "queryStringFilter is null");
-        checkNotNull(eventClient, "eventClient is null");
 
         this.httpServerInfo = httpServerInfo;
         this.nodeInfo = nodeInfo;
@@ -90,11 +89,11 @@ public class HttpServerProvider
         this.theServlet = theServlet;
         this.filters = ImmutableSet.copyOf(filters);
         this.resources = ImmutableSet.copyOf(resources);
+        this.theAdminServlet = theAdminServlet;
         this.adminFilters = ImmutableSet.copyOf(adminFilters);
         this.stats = stats;
         this.detailedRequestStats = detailedRequestStats;
         this.queryStringFilter = queryStringFilter;
-        this.eventClient = eventClient;
     }
 
     @Inject(optional = true)
@@ -137,6 +136,7 @@ public class HttpServerProvider
                     servletInitParameters,
                     filters,
                     resources,
+                    theAdminServlet,
                     adminServletInitParameters,
                     adminFilters,
                     mbeanServer,
@@ -144,8 +144,8 @@ public class HttpServerProvider
                     queryStringFilter,
                     traceTokenManager,
                     stats,
-                    detailedRequestStats,
-                    eventClient);
+                    detailedRequestStats
+            );
             httpServer.start();
             return httpServer;
         }

@@ -19,6 +19,7 @@ import com.google.common.annotations.Beta;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.inject.Binder;
+import com.google.inject.ConfigurationException;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Module;
@@ -26,6 +27,7 @@ import com.google.inject.Stage;
 import com.google.inject.spi.Message;
 import com.proofpoint.bootstrap.LoggingWriter.Type;
 import com.proofpoint.configuration.ConfigurationAwareModule;
+import com.proofpoint.configuration.ConfigurationDefaultingModule;
 import com.proofpoint.configuration.ConfigurationFactory;
 import com.proofpoint.configuration.ConfigurationFactoryBuilder;
 import com.proofpoint.configuration.ConfigurationInspector;
@@ -35,22 +37,22 @@ import com.proofpoint.configuration.ConfigurationModule;
 import com.proofpoint.configuration.ConfigurationValidator;
 import com.proofpoint.configuration.ValidationErrorModule;
 import com.proofpoint.configuration.WarningsMonitor;
-import com.proofpoint.event.client.EventClient;
 import com.proofpoint.log.Logger;
 import com.proofpoint.log.Logging;
 import com.proofpoint.log.LoggingConfiguration;
+import com.proofpoint.node.ApplicationNameModule;
+import com.proofpoint.node.NodeInfo;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.Map.Entry;
 import java.util.TreeMap;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-import static com.proofpoint.event.client.EventBinder.eventBinder;
 
 /**
  * Entry point for an application built using the platform codebase.
@@ -66,21 +68,41 @@ import static com.proofpoint.event.client.EventBinder.eventBinder;
 public class Bootstrap
 {
     private final Logger log = Logger.get("Bootstrap");
+    private final Logging logging;
     private final List<Module> modules;
 
     private Map<String, String> requiredConfigurationProperties = null;
-    private boolean initializeLogging = true;
     private Map<String, String> applicationDefaults = null;
+    private boolean quiet = false;
+    private boolean requireExplicitBindings = true;
 
     private boolean initialized = false;
+    private final String applicationName;
 
-    public Bootstrap(Module... modules)
+    public static BootstrapBeforeModules bootstrapApplication(String applicationName)
     {
-        this(ImmutableList.copyOf(modules));
+        return new BootstrapBeforeModules(applicationName);
     }
 
-    public Bootstrap(Iterable<? extends Module> modules)
+    private Bootstrap(String applicationName, Iterable<? extends Module> modules, boolean initializeLogging)
     {
+        if (initializeLogging) {
+            logging = Logging.initialize();
+        }
+        else {
+            logging = null;
+        }
+
+        Thread.currentThread().setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler()
+        {
+            @Override
+            public void uncaughtException(Thread t, Throwable e)
+            {
+                log.error(e, "Uncaught exception in thread %s", t.getName());
+            }
+        });
+
+        this.applicationName = checkNotNull(applicationName, "applicationName is null");
         this.modules = ImmutableList.copyOf(modules);
     }
 
@@ -104,13 +126,6 @@ public class Bootstrap
         return this;
     }
 
-    @Beta
-    public Bootstrap doNotInitializeLogging()
-    {
-        this.initializeLogging = false;
-        return this;
-    }
-
     public Bootstrap withApplicationDefaults(Map<String, String> applicationDefaults)
     {
         checkState(this.applicationDefaults == null, "applicationDefaults already specified");
@@ -118,9 +133,15 @@ public class Bootstrap
         return this;
     }
 
-    @Deprecated
-    public Bootstrap strictConfig()
+    public Bootstrap quiet()
     {
+        this.quiet = true;
+        return this;
+    }
+
+    public Bootstrap requireExplicitBindings(boolean requireExplicitBindings)
+    {
+        this.requireExplicitBindings = requireExplicitBindings;
         return this;
     }
 
@@ -130,22 +151,29 @@ public class Bootstrap
         checkState(!initialized, "Already initialized");
         initialized = true;
 
-        Logging logging = null;
-        if (initializeLogging) {
-            logging = Logging.initialize();
-        }
-
-        Thread.currentThread().setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler()
-        {
-            @Override
-            public void uncaughtException(Thread t, Throwable e)
-            {
-                log.error(e, "Uncaught exception in thread %s", t.getName());
+        Map<String, String> moduleDefaults = new HashMap<>();
+        Map<String, ConfigurationDefaultingModule> moduleDefaultSource = new HashMap<>();
+        List<Message> moduleDefaultErrors = new ArrayList<>();
+        for (Module module : modules) {
+            if (module instanceof ConfigurationDefaultingModule) {
+                ConfigurationDefaultingModule configurationDefaultingModule = (ConfigurationDefaultingModule) module;
+                Map<String, String> defaults = configurationDefaultingModule.getConfigurationDefaults();
+                for (Entry<String, String> entry : defaults.entrySet()) {
+                    ConfigurationDefaultingModule oldModule = moduleDefaultSource.put(entry.getKey(), configurationDefaultingModule);
+                    if (oldModule != null) {
+                        moduleDefaultErrors.add(
+                                new Message(module, "Configuration default for \"" + entry.getKey() + "\" set by both " + oldModule.toString() + " and " + module.toString()));
+                    }
+                    moduleDefaults.put(entry.getKey(), entry.getValue());
+                }
             }
-        });
+        }
 
         // initialize configuration
         ConfigurationFactoryBuilder builder = new ConfigurationFactoryBuilder();
+        if (!moduleDefaults.isEmpty()) {
+            builder = builder.withModuleDefaults(moduleDefaults, moduleDefaultSource);
+        }
         if (applicationDefaults != null) {
             builder = builder.withApplicationDefaults(applicationDefaults);
         }
@@ -192,12 +220,18 @@ public class Bootstrap
         List<Message> messages = configurationValidator.validate(modules);
 
         // Log effective configuration
-        logConfiguration(configurationFactory);
+        if (!quiet) {
+            logConfiguration(configurationFactory);
+        }
 
         // system modules
         Builder<Module> moduleList = ImmutableList.builder();
         moduleList.add(new LifeCycleModule());
         moduleList.add(new ConfigurationModule(configurationFactory));
+        moduleList.add(new ApplicationNameModule(applicationName));
+        if (!moduleDefaultErrors.isEmpty()) {
+            moduleList.add(new ValidationErrorModule(moduleDefaultErrors));
+        }
         if (!messages.isEmpty()) {
             moduleList.add(new ValidationErrorModule(messages));
         }
@@ -207,7 +241,6 @@ public class Bootstrap
             public void configure(Binder binder)
             {
                 binder.bind(WarningsMonitor.class).toInstance(warningsMonitor);
-                eventBinder(binder).bindEventClient(ConfigWarningsEvent.class);
             }
         });
 
@@ -217,7 +250,9 @@ public class Bootstrap
             public void configure(Binder binder)
             {
                 binder.disableCircularProxies();
-                binder.requireExplicitBindings();
+                if (requireExplicitBindings) {
+                    binder.requireExplicitBindings();
+                }
             }
         });
         moduleList.addAll(modules);
@@ -225,27 +260,21 @@ public class Bootstrap
         // create the injector
         final Injector injector = Guice.createInjector(Stage.PRODUCTION, moduleList.build());
 
+        if (!quiet) {
+            try {
+                NodeInfo nodeInfo = injector.getInstance(NodeInfo.class);
+                log.info("Node ID %s", nodeInfo.getNodeId());
+            }
+            catch (ConfigurationException ignored) {
+            }
+        }
+
         // Create the life-cycle manager
         LifeCycleManager lifeCycleManager = injector.getInstance(LifeCycleManager.class);
 
         // Start services
         if (lifeCycleManager.size() > 0) {
             lifeCycleManager.start();
-        }
-
-        // Report config warnings
-        if (!warnings.isEmpty()) {
-            final EventClient eventClient = injector.getInstance(EventClient.class);
-            Timer warningsSenderTimer = new Timer("config-warnings-sender", true);
-            warningsSenderTimer.scheduleAtFixedRate(new TimerTask()
-            {
-                @Override
-                public void run()
-                {
-                    eventClient.post(new ConfigWarningsEvent(warnings));
-                }
-            }, 0, 24 * 60 * 60 * 1000);
-            lifeCycleManager.addInstance(warningsSenderTimer);
         }
 
         return injector;
@@ -285,5 +314,33 @@ public class Bootstrap
             }
         }
         return columnPrinter;
+    }
+
+    public static class BootstrapBeforeModules
+    {
+        private final String applicationName;
+        private boolean initializeLogging = true;
+
+        private BootstrapBeforeModules(String applicationName)
+        {
+            this.applicationName = checkNotNull(applicationName, "applicationName is null");
+        }
+
+        @Beta
+        public BootstrapBeforeModules doNotInitializeLogging()
+        {
+            this.initializeLogging = false;
+            return this;
+        }
+
+        public Bootstrap withModules(Module... modules)
+        {
+            return withModules(ImmutableList.copyOf(modules));
+        }
+
+        public Bootstrap withModules(Iterable<? extends Module> modules)
+        {
+            return new Bootstrap(applicationName, modules, initializeLogging);
+        }
     }
 }

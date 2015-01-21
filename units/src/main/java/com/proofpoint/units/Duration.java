@@ -20,6 +20,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.google.common.base.Preconditions;
 import com.google.common.primitives.Doubles;
 
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,7 +43,7 @@ public final class Duration implements Comparable<Duration>
 
         long value = end - start;
         double millis = value * millisPerTimeUnit(NANOSECONDS);
-        return new Duration(millis, MILLISECONDS);
+        return new Duration(millis, MILLISECONDS).convertToMostSuccinctTimeUnit();
     }
 
     private final double value;
@@ -89,15 +90,6 @@ public final class Duration implements Comparable<Duration>
         return (long) rounded;
     }
 
-    /**
-     * @deprecated Use {@link #getValue(TimeUnit)} or {@link #roundTo(TimeUnit)} instead
-     */
-    @Deprecated
-    public double convertTo(TimeUnit timeUnit)
-    {
-        return getValue(timeUnit);
-    }
-
     public Duration convertToMostSuccinctTimeUnit()
     {
         TimeUnit unitToUse = NANOSECONDS;
@@ -126,7 +118,7 @@ public final class Duration implements Comparable<Duration>
         Preconditions.checkNotNull(timeUnit, "timeUnit is null");
         double magnitude = getValue(timeUnit);
         String timeUnitAbbreviation = timeUnitToString(timeUnit);
-        return String.format("%.2f%s", magnitude, timeUnitAbbreviation);
+        return String.format(Locale.ENGLISH, "%.2f%s", magnitude, timeUnitAbbreviation);
     }
 
     @JsonCreator

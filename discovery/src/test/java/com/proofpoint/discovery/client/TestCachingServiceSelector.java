@@ -17,7 +17,6 @@ package com.proofpoint.discovery.client;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.proofpoint.discovery.client.testing.InMemoryDiscoveryClient;
 import com.proofpoint.node.NodeConfig;
 import com.proofpoint.node.NodeInfo;
@@ -29,6 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 
+import static com.proofpoint.concurrent.Threads.daemonThreadsNamed;
 import static com.proofpoint.testing.Assertions.assertEqualsIgnoreOrder;
 import static org.testng.Assert.assertEquals;
 
@@ -49,8 +49,7 @@ public class TestCachingServiceSelector
     protected void setUp()
             throws Exception
     {
-        executor = new ScheduledThreadPoolExecutor(10,
-                new ThreadFactoryBuilder().setNameFormat("Discovery-%s").setDaemon(true).build());
+        executor = new ScheduledThreadPoolExecutor(10, daemonThreadsNamed("Discovery-%s"));
         nodeInfo = new NodeInfo("environment");
         discoveryClient = new InMemoryDiscoveryClient(nodeInfo);
         serviceSelector = new CachingServiceSelector("apple",
@@ -82,7 +81,7 @@ public class TestCachingServiceSelector
     {
         serviceSelector = new CachingServiceSelector("apple",
                 new ServiceSelectorConfig(),
-                new NodeInfo(new NodeConfig().setEnvironment("environment").setPool("nodepool")));
+                new NodeInfo("test-application", new NodeConfig().setEnvironment("environment").setPool("nodepool")));
         assertEquals(serviceSelector.getType(), "apple");
         assertEquals(serviceSelector.getPool(), "nodepool");
     }
@@ -140,7 +139,7 @@ public class TestCachingServiceSelector
 
         updater = new ServiceDescriptorsUpdater(serviceSelector, "apple",
                 new ServiceSelectorConfig(),
-                new NodeInfo(new NodeConfig().setEnvironment("environment").setPool("pool")),
+                new NodeInfo("test-application", new NodeConfig().setEnvironment("environment").setPool("pool")),
                 discoveryClient,
                 executor);
         updater.start();

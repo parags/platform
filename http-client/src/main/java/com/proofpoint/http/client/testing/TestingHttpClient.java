@@ -15,6 +15,7 @@ import com.proofpoint.units.Duration;
 import javax.validation.constraints.NotNull;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -59,7 +60,7 @@ public class TestingHttpClient
     }
 
     @Override
-    public <T, E extends Exception> AsyncHttpResponseFuture<T> executeAsync(final Request request, final ResponseHandler<T, E> responseHandler)
+    public <T, E extends Exception> HttpResponseFuture<T> executeAsync(final Request request, final ResponseHandler<T, E> responseHandler)
     {
         checkNotNull(request, "request is null");
         checkNotNull(responseHandler, "responseHandler is null");
@@ -76,7 +77,7 @@ public class TestingHttpClient
             }
         });
 
-        return new TestingAsyncHttpResponseFuture<>(future, state);
+        return new TestingHttpResponseFuture(future, state);
     }
 
     @Override
@@ -93,25 +94,35 @@ public class TestingHttpClient
             throws E
     {
         state.set("PROCESSING_REQUEST");
+        long requestStart = System.nanoTime();
         Response response;
-        Duration requestProcessingTime = null;
         try {
-            long requestStart = System.nanoTime();
             response = processor.handle(request);
-            requestProcessingTime = Duration.nanosSince(requestStart);
         }
         catch (Throwable e) {
             state.set("FAILED");
-            stats.record(request.getMethod(),
-                    0,
-                    0,
-                    0,
-                    requestProcessingTime,
-                    null);
+            long responseStart = System.nanoTime();
+            Duration requestProcessingTime = new Duration(responseStart - requestStart, TimeUnit.NANOSECONDS);
             if (e instanceof Exception) {
-                return responseHandler.handleException(request, (Exception) e);
+                try {
+                    return responseHandler.handleException(request, (Exception) e);
+                }
+                finally {
+                    stats.record(request.getMethod(),
+                            0,
+                            0,
+                            0,
+                            requestProcessingTime,
+                            Duration.nanosSince(responseStart));
+                }
             }
             else {
+                stats.record(request.getMethod(),
+                        0,
+                        0,
+                        0,
+                        requestProcessingTime,
+                        new Duration(0, TimeUnit.NANOSECONDS));
                 throw (Error) e;
             }
         }
@@ -120,18 +131,18 @@ public class TestingHttpClient
         // notify handler
         state.set("PROCESSING_RESPONSE");
         long responseStart = System.nanoTime();
+        Duration requestProcessingTime = new Duration(responseStart - requestStart, TimeUnit.NANOSECONDS);
         try {
             return responseHandler.handle(request, response);
         }
         finally {
             state.set("DONE");
-            Duration responseProcessingTime = Duration.nanosSince(responseStart);
             stats.record(request.getMethod(),
                     response.getStatusCode(),
                     response.getBytesRead(),
                     response.getBytesRead(),
                     requestProcessingTime,
-                    responseProcessingTime);
+                    Duration.nanosSince(responseStart));
         }
     }
 
@@ -154,14 +165,14 @@ public class TestingHttpClient
                 throws Exception;
     }
 
-    private class TestingAsyncHttpResponseFuture<T>
+    private static class TestingHttpResponseFuture<T>
             extends ForwardingListenableFuture<T>
-            implements AsyncHttpResponseFuture<T>
+            implements HttpResponseFuture<T>
     {
         private final AtomicReference<String> state;
         private final ListenableFuture<T> future;
 
-        private TestingAsyncHttpResponseFuture(ListenableFuture<T> future, AtomicReference<String> state)
+        private TestingHttpResponseFuture(ListenableFuture<T> future, AtomicReference<String> state)
         {
             this.future = future;
             this.state = state;

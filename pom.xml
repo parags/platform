@@ -5,12 +5,12 @@
     <packaging>pom</packaging>
     <name>platform</name>
     <description>Proofpoint platform</description>
-    <url>http://github.com/proofpoint/platform</url>
+    <url>https://github.com/proofpoint/platform</url>
 
     <parent>
         <groupId>com.proofpoint.platform</groupId>
         <artifactId>library</artifactId>
-        <version>0.82-SNAPSHOT</version>
+        <version>1.11-SNAPSHOT</version>
         <relativePath>library/pom.xml</relativePath>
     </parent>
 
@@ -19,60 +19,22 @@
         <name>Proofpoint, Inc.</name>
         <url>http://www.proofpoint.com</url>
     </organization>
+
     <licenses>
         <license>
             <name>Apache License 2.0</name>
-            <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <url>http://www.apache.org/licenses/LICENSE-2.0</url>
             <distribution>repo</distribution>
         </license>
     </licenses>
 
     <developers>
         <developer>
-            <id>ahong</id>
-            <name>Alfred Hong</name>
-            <email>ahong@proofpoint.com</email>
-        </developer>
-        <developer>
-            <id>altitude</id>
-            <name>Alex Tang</name>
-            <email>altitude@proofpoint.com</email>
-        </developer>
-        <developer>
             <id>jgmyers</id>
             <name>John Gardiner Myers</name>
             <email>jgmyers@proofpoint.com</email>
         </developer>
-        <developer>
-            <id>mkent</id>
-            <name>Mark Kent</name>
-            <email>mkent@proofpoint.com</email>
-        </developer>
     </developers>
-    <contributors>
-        <contributor>
-            <name>Dain Sundstrom</name>
-            <email>dain@iq80.com</email>
-        </contributor>
-        <contributor>
-            <name>David Phillips</name>
-            <email>david@acz.org</email>
-        </contributor>
-        <contributor>
-            <name>Jordan Zimmerman</name>
-        </contributor>
-        <contributor>
-            <name>Matt Stephenson</name>
-            <email>mattstep@mattstep.net</email>
-        </contributor>
-        <contributor>
-            <name>Martin Traverso</name>
-            <email>mtraverso@gmail.com</email>
-        </contributor>
-        <contributor>
-            <name>Rick Wong</name>
-        </contributor>
-    </contributors>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -82,59 +44,25 @@
         <connection>scm:git:git://github.com/proofpoint/platform.git</connection>
         <developerConnection>scm:git:git@github.com:proofpoint/platform.git</developerConnection>
         <url>http://github.com/proofpoint/platform/tree/master</url>
-    </scm>
-
-    <prerequisites>
-        <maven>3.0</maven>
-    </prerequisites>
+      <tag>HEAD</tag>
+  </scm>
 
     <build>
         <pluginManagement>
             <plugins>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-gpg-plugin</artifactId>
-                    <version>1.4</version>
-                    <executions>
-                        <execution>
-                            <id>sign-artifacts</id>
-                            <phase>verify</phase>
-                            <goals>
-                                <goal>sign</goal>
-                            </goals>
-                            <configuration>
-                                <useAgent>true</useAgent>
-                            </configuration>
-                        </execution>
-                    </executions>
+                    <artifactId>maven-antrun-plugin</artifactId>
+                    <version>1.7</version>
                 </plugin>
-
                 <plugin>
-                    <groupId>org.codehaus.mojo</groupId>
-                    <artifactId>findbugs-maven-plugin</artifactId>
-                    <version>2.3.2</version>
-                    <configuration>
-                        <findbugsXmlOutput>true</findbugsXmlOutput>
-                        <xmlOutput>true</xmlOutput>
-                    </configuration>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-invoker-plugin</artifactId>
+                    <version>1.8</version>
                 </plugin>
-
-
-                <plugin>
-                    <groupId>org.codehaus.mojo</groupId>
-                    <artifactId>cobertura-maven-plugin</artifactId>
-                    <version>2.4</version>
-                    <configuration>
-                        <formats>
-                            <format>xml</format>
-                        </formats>
-                    </configuration>
-                </plugin>
-
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-release-plugin</artifactId>
-                    <version>2.2.2</version>
                     <configuration>
                         <mavenExecutorId>forked-path</mavenExecutorId>
                         <arguments>-Psonatype-oss-release</arguments>
@@ -146,26 +74,6 @@
                         <tagNameFormat>@{project.version}</tagNameFormat>
                     </configuration>
                 </plugin>
-
-                <plugin>
-                    <groupId>com.mycila.maven-license-plugin</groupId>
-                    <artifactId>maven-license-plugin</artifactId>
-                    <version>1.9.0</version>
-                    <configuration>
-                        <skipExistingHeaders>true</skipExistingHeaders>
-                        <header>license-header.txt</header>
-                        <mapping>
-                            <java>SLASHSTAR_STYLE</java>
-                        </mapping>
-                        <excludes>
-                            <exclude>**/README.txt</exclude>
-                            <exclude>**/config.properties</exclude>
-                            <exclude>**/log.properties</exclude>
-                            <exclude>**/src/test/resources/gems/**</exclude>
-                            <exclude>**/*.html</exclude>
-                        </excludes>
-                    </configuration>
-                </plugin>
             </plugins>
         </pluginManagement>
     </build>
@@ -175,25 +83,13 @@
             <id>sonatype-oss-release</id>
             <properties>
                 <skipTests>true</skipTests> <!-- tests run in the preparation step of the release -->
+                <platform.check.skip-extended>true</platform.check.skip-extended>
             </properties>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
-                        <version>1.4</version>
-                        <executions>
-                            <execution>
-                                <id>sign-artifacts</id>
-                                <phase>verify</phase>
-                                <goals>
-                                    <goal>sign</goal>
-                                </goals>
-                                <configuration>
-                                    <useAgent>true</useAgent>
-                                </configuration>
-                            </execution>
-                        </executions>
                     </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
@@ -206,10 +102,6 @@
 
     <modules>
         <module>library</module>
-        <module>rack</module>
-        <module>rack-launcher</module>
-        <module>rack-packaging</module>
-        <module>rack-server-base</module>
         <module>testing</module>
         <module>launcher</module>
         <module>packaging</module>

@@ -16,18 +16,15 @@
 package com.proofpoint.reporting;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.inject.Binder;
 import com.google.inject.Guice;
-import com.google.inject.Module;
-import com.google.inject.Scopes;
 import com.proofpoint.configuration.ConfigurationFactory;
 import com.proofpoint.configuration.ConfigurationModule;
+import com.proofpoint.discovery.client.testing.TestingDiscoveryModule;
+import com.proofpoint.json.JsonModule;
+import com.proofpoint.node.ApplicationNameModule;
 import com.proofpoint.node.testing.TestingNodeModule;
 import org.testng.annotations.Test;
-import org.weakref.jmx.guice.MBeanModule;
-import org.weakref.jmx.testing.TestingMBeanServer;
-
-import javax.management.MBeanServer;
+import org.weakref.jmx.testing.TestingMBeanModule;
 
 public class TestReportCollector
 {
@@ -35,17 +32,12 @@ public class TestReportCollector
     public void testReportingModule()
     {
         Guice.createInjector(
+                new ApplicationNameModule("test-application"),
                 new TestingNodeModule(),
-                new MBeanModule(),
-                new Module()
-                {
-                    @Override
-                    public void configure(Binder binder)
-                    {
-                        binder.bind(MBeanServer.class).to(TestingMBeanServer.class).in(Scopes.SINGLETON);
-                    }
-                },
+                new TestingDiscoveryModule(),
+                new TestingMBeanModule(),
                 new ConfigurationModule(new ConfigurationFactory(ImmutableMap.<String, String>of())),
+                new JsonModule(),
                 new ReportingModule(),
                 new ReportingClientModule());
     }

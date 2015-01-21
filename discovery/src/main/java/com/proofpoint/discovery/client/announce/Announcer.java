@@ -22,7 +22,6 @@ import com.google.common.collect.MapMaker;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Inject;
 import com.proofpoint.discovery.client.DiscoveryException;
 import com.proofpoint.discovery.client.ExponentialBackOff;
@@ -42,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.proofpoint.concurrent.Threads.daemonThreadsNamed;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -71,7 +71,7 @@ public class Announcer
         for (ServiceAnnouncement serviceAnnouncement : serviceAnnouncements) {
             announcements.put(serviceAnnouncement.getId(), serviceAnnouncement);
         }
-        executor = new ScheduledThreadPoolExecutor(5, new ThreadFactoryBuilder().setNameFormat("Announcer-%s").setDaemon(true).build());
+        executor = new ScheduledThreadPoolExecutor(5, daemonThreadsNamed("Announcer-%s"));
     }
 
     public void start()
@@ -92,6 +92,10 @@ public class Announcer
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+
+        if (!started.get()) {
+            return;
         }
 
         // unannounce
@@ -119,9 +123,14 @@ public class Announcer
         announcements.remove(serviceId);
     }
 
+    private Set<ServiceAnnouncement> getServiceAnnouncements()
+    {
+        return ImmutableSet.copyOf(announcements.values());
+    }
+
     private ListenableFuture<Duration> announce()
     {
-        final ListenableFuture<Duration> future = announcementClient.announce(ImmutableSet.copyOf(announcements.values()));
+        final ListenableFuture<Duration> future = announcementClient.announce(getServiceAnnouncements());
 
         Futures.addCallback(future, new FutureCallback<Duration>()
         {
@@ -144,6 +153,11 @@ public class Announcer
         }, executor);
 
         return future;
+    }
+
+    public ListenableFuture<?> forceAnnounce()
+    {
+        return announcementClient.announce(getServiceAnnouncements());
     }
 
     private void scheduleNextAnnouncement(Duration delay)

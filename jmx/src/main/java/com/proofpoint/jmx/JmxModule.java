@@ -16,18 +16,13 @@
 package com.proofpoint.jmx;
 
 import com.google.inject.Binder;
-import com.google.inject.Inject;
 import com.google.inject.Module;
-import com.google.inject.Provider;
 import com.google.inject.Scopes;
 import com.proofpoint.configuration.ConfigurationModule;
-import com.proofpoint.discovery.client.announce.ServiceAnnouncement;
 
 import javax.management.MBeanServer;
 import java.lang.management.ManagementFactory;
 
-import static com.proofpoint.discovery.client.DiscoveryBinder.discoveryBinder;
-import static com.proofpoint.discovery.client.announce.ServiceAnnouncement.serviceAnnouncement;
 import static org.weakref.jmx.guice.ExportBinder.newExporter;
 
 public class JmxModule
@@ -36,7 +31,6 @@ public class JmxModule
     @Override
     public void configure(Binder binder)
     {
-        binder.requireExplicitBindings();
         binder.disableCircularProxies();
 
         binder.bind(MBeanServer.class).toInstance(ManagementFactory.getPlatformMBeanServer());
@@ -45,27 +39,5 @@ public class JmxModule
 
         newExporter(binder).export(StackTraceMBean.class).withGeneratedName();
         binder.bind(StackTraceMBean.class).in(Scopes.SINGLETON);
-
-        discoveryBinder(binder).bindServiceAnnouncement(JmxAnnouncementProvider.class);
-    }
-
-    static class JmxAnnouncementProvider
-            implements Provider<ServiceAnnouncement>
-    {
-        private JmxAgent jmxAgent;
-
-        @Inject
-        public void setJmxAgent(JmxAgent jmxAgent)
-        {
-            this.jmxAgent = jmxAgent;
-        }
-
-        @Override
-        public ServiceAnnouncement get()
-        {
-            return serviceAnnouncement("jmx")
-                    .addProperty("jmx", jmxAgent.getUrl().toString())
-                    .build();
-        }
     }
 }

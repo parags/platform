@@ -28,21 +28,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HttpHeaders;
-import com.google.common.reflect.TypeToken;
 import com.google.inject.Inject;
-import com.proofpoint.http.server.QueryStringFilter;
 import com.proofpoint.log.Logger;
-import org.apache.bval.jsr303.ApacheValidationProvider;
 
-import javax.validation.ConstraintViolation;
-import javax.validation.Valid;
-import javax.validation.Validation;
-import javax.validation.Validator;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.Produces;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriInfo;
 import javax.ws.rs.ext.MessageBodyReader;
 import javax.ws.rs.ext.MessageBodyWriter;
 import javax.ws.rs.ext.Provider;
@@ -52,21 +47,17 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static com.sun.jersey.api.uri.UriComponent.decodeQuery;
+import static com.proofpoint.jaxrs.ValidationUtils.validateObject;
 
 // This code is based on JacksonJsonProvider
 @Provider
 @Consumes({MediaType.APPLICATION_JSON, "text/json"})
 @Produces({MediaType.APPLICATION_JSON, "text/json"})
-class JsonMapper
+public class JsonMapper
         implements MessageBodyReader<Object>, MessageBodyWriter<Object>
 {
-    private static final Validator VALIDATOR = Validation.byProvider(ApacheValidationProvider.class).configure().buildValidatorFactory().getValidator();
-
     /**
      * Looks like we need to worry about accidental
      * data binding for types we shouldn't be handling. This is
@@ -86,26 +77,39 @@ class JsonMapper
     public static final Logger log = Logger.get(JsonMapper.class);
 
     private final ObjectMapper objectMapper;
-    private final QueryStringFilter queryStringFilter;
+
+    private final AtomicReference<UriInfo> uriInfo = new AtomicReference<>();
 
     @Inject
-    public JsonMapper(ObjectMapper objectMapper, QueryStringFilter queryStringFilter)
+    public JsonMapper(ObjectMapper objectMapper)
     {
         this.objectMapper = objectMapper;
-        this.queryStringFilter = queryStringFilter;
     }
 
+    @Context
+    public void setUriInfo(UriInfo uriInfo)
+    {
+        this.uriInfo.set(uriInfo);
+    }
+
+    private UriInfo getUriInfo()
+    {
+        return this.uriInfo.get();
+    }
+
+    @Override
     public boolean isReadable(Class<?> type, Type genericType, Annotation[] annotations, MediaType mediaType)
     {
         return canReadOrWrite(type);
     }
 
+    @Override
     public boolean isWriteable(Class<?> type, Type genericType, Annotation[] annotations, MediaType mediaType)
     {
         return canReadOrWrite(type);
     }
 
-    private boolean canReadOrWrite(Class<?> type)
+    private static boolean canReadOrWrite(Class<?> type)
     {
         if (IO_CLASSES.contains(type)) {
             return false;
@@ -119,6 +123,7 @@ class JsonMapper
         return true;
     }
 
+    @Override
     public Object readFrom(Class<Object> type,
             Type genericType,
             Annotation[] annotations,
@@ -129,7 +134,7 @@ class JsonMapper
     {
         Object object;
         try {
-            JsonParser jsonParser = objectMapper.getFactory().createJsonParser(inputStream);
+            JsonParser jsonParser = objectMapper.getFactory().createParser(inputStream);
 
             // Important: we are NOT to close the underlying stream after
             // mapping, so we need to instruct parser:
@@ -152,23 +157,12 @@ class JsonMapper
         }
 
         // validate object using the bean validation framework
-        Set<ConstraintViolation<Object>> violations;
-        if (TypeToken.of(genericType).getRawType().equals(List.class)) {
-            violations = VALIDATOR.<Object>validate(new ValidatableList((List<?>) object));
-        }
-        else if (TypeToken.of(genericType).getRawType().equals(Map.class)) {
-            violations = VALIDATOR.<Object>validate(new ValidatableMap((Map<?, ?>) object));
-        }
-        else {
-            violations = VALIDATOR.validate(object);
-        }
-        if (!violations.isEmpty()) {
-            throw new BeanValidationException(violations);
-        }
+        validateObject(genericType, object);
 
         return object;
     }
 
+    @Override
     public long getSize(Object value, Class<?> type, Type genericType, Annotation[] annotations, MediaType mediaType)
     {
         // In general figuring output size requires actual writing; usually not
@@ -176,6 +170,7 @@ class JsonMapper
         return -1;
     }
 
+    @Override
     public void writeTo(Object value,
             Class<?> type,
             Type genericType,
@@ -191,7 +186,7 @@ class JsonMapper
         JsonFactory jsonFactory = objectMapper.getFactory();
         jsonFactory.setCharacterEscapes(HTMLCharacterEscapes.INSTANCE);
 
-        JsonGenerator jsonGenerator = jsonFactory.createJsonGenerator(outputStream, JsonEncoding.UTF8);
+        JsonGenerator jsonGenerator = jsonFactory.createGenerator(outputStream, JsonEncoding.UTF8);
 
         // Important: we are NOT to close the underlying stream after
         // mapping, so we need to instruct generator:
@@ -240,14 +235,12 @@ class JsonMapper
 
     private boolean isPrettyPrintRequested()
     {
-        if (queryStringFilter == null) {
+        UriInfo uriInfo = getUriInfo();
+        if (uriInfo == null) {
             return false;
         }
-        String queryString = queryStringFilter.getQueryString();
-        if (queryString == null) {
-            return false;
-        }
-        MultivaluedMap<String, String> queryParameters = decodeQuery(queryString, false);
+
+        MultivaluedMap<String, String> queryParameters = uriInfo.getQueryParameters();
         return queryParameters.containsKey("pretty");
     }
 
@@ -283,28 +276,6 @@ class JsonMapper
         {
             // no further escaping (beyond ASCII chars) needed:
             return null;
-        }
-    }
-
-    private static class ValidatableList
-    {
-        @Valid
-        final private List<?> list;
-
-        ValidatableList(List<?> list)
-        {
-            this.list = list;
-        }
-    }
-
-    private static class ValidatableMap
-    {
-        @Valid
-        final private Map<?, ?> map;
-
-        ValidatableMap(Map<?, ?> map)
-        {
-            this.map = map;
         }
     }
 }

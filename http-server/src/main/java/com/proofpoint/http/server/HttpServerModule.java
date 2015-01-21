@@ -22,10 +22,10 @@ import com.google.inject.multibindings.Multibinder;
 import com.proofpoint.configuration.ConfigurationModule;
 import com.proofpoint.discovery.client.announce.AnnouncementHttpServerInfo;
 import com.proofpoint.http.server.HttpServerBinder.HttpResourceBinding;
+import org.weakref.jmx.ObjectNameBuilder;
 
 import javax.servlet.Filter;
 
-import static com.proofpoint.event.client.EventBinder.eventBinder;
 import static com.proofpoint.reporting.ReportBinder.reportBinder;
 
 /**
@@ -55,7 +55,6 @@ public class HttpServerModule
     @Override
     public void configure(Binder binder)
     {
-        binder.requireExplicitBindings();
         binder.disableCircularProxies();
 
         binder.bind(HttpServer.class).toProvider(HttpServerProvider.class).in(Scopes.SINGLETON);
@@ -66,12 +65,14 @@ public class HttpServerModule
         Multibinder.newSetBinder(binder, Filter.class, TheAdminServlet.class);
         Multibinder.newSetBinder(binder, HttpResourceBinding.class, TheServlet.class);
 
-        reportBinder(binder).export(RequestStats.class).withGeneratedName();
-        reportBinder(binder).bindReportCollection(DetailedRequestStats.class).withGeneratedName();
+        reportBinder(binder).export(HttpServer.class).withGeneratedName();
+        reportBinder(binder).bindReportCollection(DetailedRequestStats.class).as(
+                new ObjectNameBuilder(RequestStats.class.getPackage().getName())
+                        .withProperty("type", "HttpServer")
+                        .build()
+        );
 
         ConfigurationModule.bindConfig(binder).to(HttpServerConfig.class);
-
-        eventBinder(binder).bindEventClient(HttpRequestEvent.class);
 
         binder.bind(AnnouncementHttpServerInfo.class).to(LocalAnnouncementHttpServerInfo.class).in(Scopes.SINGLETON);
     }

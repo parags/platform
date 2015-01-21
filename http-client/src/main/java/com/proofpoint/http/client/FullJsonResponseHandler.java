@@ -22,14 +22,19 @@ import com.google.common.io.ByteStreams;
 import com.google.common.net.MediaType;
 import com.proofpoint.http.client.FullJsonResponseHandler.JsonResponse;
 import com.proofpoint.json.JsonCodec;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 import java.io.IOException;
-import java.net.ConnectException;
+import java.nio.charset.Charset;
 import java.util.List;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
+import static com.proofpoint.http.client.ResponseHandlerUtils.propagate;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-public class FullJsonResponseHandler<T> implements ResponseHandler<JsonResponse<T>, RuntimeException>
+public class FullJsonResponseHandler<T>
+        implements ResponseHandler<JsonResponse<T>, RuntimeException>
 {
     private static final MediaType MEDIA_TYPE_JSON = MediaType.create("application", "json");
 
@@ -48,28 +53,27 @@ public class FullJsonResponseHandler<T> implements ResponseHandler<JsonResponse<
     @Override
     public JsonResponse<T> handleException(Request request, Exception exception)
     {
-        if (exception instanceof ConnectException) {
-            throw new RuntimeException("Server refused connection: " + request.getUri().toASCIIString());
-        }
-        if (exception instanceof RuntimeException) {
-            throw (RuntimeException) exception;
-        }
-        throw new RuntimeException(exception);
+        throw propagate(request, exception);
     }
 
     @Override
     public JsonResponse<T> handle(Request request, Response response)
     {
-        String contentType = response.getHeader("Content-Type");
+        byte[] bytes = readResponseBytes(response);
+        String contentType = response.getHeader(CONTENT_TYPE);
         if ((contentType == null) || !MediaType.parse(contentType).is(MEDIA_TYPE_JSON)) {
-            return new JsonResponse<>(response.getStatusCode(), response.getStatusMessage(), response.getHeaders());
+            return new JsonResponse<>(response.getStatusCode(), response.getStatusMessage(), response.getHeaders(), bytes);
         }
+        return new JsonResponse<>(response.getStatusCode(), response.getStatusMessage(), response.getHeaders(), jsonCodec, bytes);
+    }
+
+    private static byte[] readResponseBytes(Response response)
+    {
         try {
-            byte[] bytes = ByteStreams.toByteArray(response.getInputStream());
-            return new JsonResponse<>(response.getStatusCode(), response.getStatusMessage(), response.getHeaders(), jsonCodec, bytes);
+            return ByteStreams.toByteArray(response.getInputStream());
         }
         catch (IOException e) {
-            throw new RuntimeException("Error reading JSON response from server", e);
+            throw new RuntimeException("Error reading response from server", e);
         }
     }
 
@@ -80,10 +84,11 @@ public class FullJsonResponseHandler<T> implements ResponseHandler<JsonResponse<
         private final ListMultimap<String, String> headers;
         private final boolean hasValue;
         private final byte[] jsonBytes;
+        private final byte[] responseBytes;
         private final T value;
         private final IllegalArgumentException exception;
 
-        public JsonResponse(int statusCode, String statusMessage, ListMultimap<String, String> headers)
+        public JsonResponse(int statusCode, String statusMessage, ListMultimap<String, String> headers, byte[] responseBytes)
         {
             this.statusCode = statusCode;
             this.statusMessage = statusMessage;
@@ -91,18 +96,21 @@ public class FullJsonResponseHandler<T> implements ResponseHandler<JsonResponse<
 
             this.hasValue = false;
             this.jsonBytes = null;
+            this.responseBytes = checkNotNull(responseBytes, "responseBytes is null");
             this.value = null;
             this.exception = null;
         }
 
         @SuppressWarnings("ThrowableInstanceNeverThrown")
+        @SuppressFBWarnings("EI_EXPOSE_REP2")
         public JsonResponse(int statusCode, String statusMessage, ListMultimap<String, String> headers, JsonCodec<T> jsonCodec, byte[] jsonBytes)
         {
             this.statusCode = statusCode;
             this.statusMessage = statusMessage;
             this.headers = ImmutableListMultimap.copyOf(headers);
 
-            this.jsonBytes = jsonBytes;
+            this.jsonBytes = checkNotNull(jsonBytes, "jsonBytes is null");
+            this.responseBytes = jsonBytes;
 
             T value = null;
             IllegalArgumentException exception = null;
@@ -154,6 +162,16 @@ public class FullJsonResponseHandler<T> implements ResponseHandler<JsonResponse<
             return value;
         }
 
+        public byte[] getResponseBytes()
+        {
+            return responseBytes.clone();
+        }
+
+        public String getResponseBody()
+        {
+            return new String(responseBytes, getCharset());
+        }
+
         public byte[] getJsonBytes()
         {
             return (jsonBytes == null) ? null : jsonBytes.clone();
@@ -179,6 +197,19 @@ public class FullJsonResponseHandler<T> implements ResponseHandler<JsonResponse<
                     .add("hasValue", hasValue)
                     .add("value", value)
                     .toString();
+        }
+
+        private Charset getCharset()
+        {
+            List<String> values = headers.get(CONTENT_TYPE);
+            if ((values != null) && !values.isEmpty()) {
+                try {
+                    return MediaType.parse(values.get(0)).charset().or(UTF_8);
+                }
+                catch (RuntimeException ignored) {
+                }
+            }
+            return UTF_8;
         }
     }
 }

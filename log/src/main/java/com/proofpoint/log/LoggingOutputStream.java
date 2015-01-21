@@ -25,9 +25,9 @@ class LoggingOutputStream
         extends ByteArrayOutputStream
 {
     private final String lineSeparator;
-    private final org.slf4j.Logger logger;
+    private final Logger logger;
 
-    public LoggingOutputStream(org.slf4j.Logger logger)
+    public LoggingOutputStream(Logger logger)
     {
         super();
         this.logger = logger;
@@ -41,7 +41,7 @@ class LoggingOutputStream
             throws IOException
     {
         super.flush();
-        String record = this.toString();
+        String record = this.toString("UTF-8");
         super.reset();
 
         if (record.isEmpty() || record.equals(lineSeparator)) {

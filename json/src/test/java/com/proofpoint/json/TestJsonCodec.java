@@ -15,13 +15,15 @@
  */
 package com.proofpoint.json;
 
-import com.google.inject.TypeLiteral;
+import com.google.common.reflect.TypeToken;
 import org.testng.annotations.Test;
 
 import java.util.List;
 import java.util.Map;
 
 import static com.proofpoint.json.JsonCodec.*;
+import static com.proofpoint.testing.Assertions.assertContains;
+import static com.proofpoint.testing.Assertions.assertNotContains;
 import static org.testng.Assert.assertNull;
 
 public class TestJsonCodec
@@ -54,10 +56,10 @@ public class TestJsonCodec
     }
 
     @Test
-    public void testTypeLiteralList()
+    public void testTypeTokenList()
             throws Exception
     {
-        JsonCodec<List<Person>> jsonCodec = jsonCodec(new TypeLiteral<List<Person>>() { });
+        JsonCodec<List<Person>> jsonCodec = jsonCodec(new TypeToken<List<Person>>() {});
 
         Person.validatePersonListJsonCodec(jsonCodec);
     }
@@ -84,7 +86,7 @@ public class TestJsonCodec
     public void testTypeLiteralMap()
             throws Exception
     {
-        JsonCodec<Map<String, Person>> jsonCodec = jsonCodec(new TypeLiteral<Map<String, Person>>() {});
+        JsonCodec<Map<String, Person>> jsonCodec = jsonCodec(new TypeToken<Map<String, Person>>() {});
 
         Person.validatePersonMapJsonCodec(jsonCodec);
     }
@@ -126,10 +128,10 @@ public class TestJsonCodec
     }
 
     @Test
-    public void testImmutableTypeLiteralList()
+    public void testImmutableTypeTokenList()
             throws Exception
     {
-        JsonCodec<List<ImmutablePerson>> jsonCodec = jsonCodec(new TypeLiteral<List<ImmutablePerson>>() { });
+        JsonCodec<List<ImmutablePerson>> jsonCodec = jsonCodec(new TypeToken<List<ImmutablePerson>>() {});
 
         ImmutablePerson.validatePersonListJsonCodec(jsonCodec);
     }
@@ -153,11 +155,34 @@ public class TestJsonCodec
     }
 
     @Test
-    public void testImmutableTypeLiteralMap()
+    public void testImmutableTypeTokenMap()
             throws Exception
     {
-        JsonCodec<Map<String, ImmutablePerson>> jsonCodec = jsonCodec(new TypeLiteral<Map<String, ImmutablePerson>>() {});
+        JsonCodec<Map<String, ImmutablePerson>> jsonCodec = jsonCodec(new TypeToken<Map<String, ImmutablePerson>>() {});
 
         ImmutablePerson.validatePersonMapJsonCodec(jsonCodec);
+    }
+
+    @Test
+    public void testIsPretty()
+    {
+        JsonCodec<Person> jsonCodec = jsonCodec(Person.class);
+        String json = jsonCodec.toJson(new Person().setName("dain").setRocks(true));
+        assertContains(json, "\n");
+    }
+
+    @Test
+    public void testNonPretty()
+    {
+        JsonCodec<Person> prettyJsonCodec = jsonCodec(Person.class);
+        JsonCodec<Person> jsonCodec = prettyJsonCodec.withoutPretty();
+
+        String json = jsonCodec.toJson(new Person().setName("dain").setRocks(true));
+        assertNotContains(json, "\n");
+
+        Person.validatePersonJsonCodec(jsonCodec);
+
+        json = prettyJsonCodec.toJson(new Person().setName("dain").setRocks(true));
+        assertContains(json, "\n");
     }
 }

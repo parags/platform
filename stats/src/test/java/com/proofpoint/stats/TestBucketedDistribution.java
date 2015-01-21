@@ -1,6 +1,5 @@
 package com.proofpoint.stats;
 
-import com.proofpoint.reporting.BucketIdProvider;
 import com.proofpoint.reporting.Bucketed;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -39,9 +38,9 @@ public class TestBucketedDistribution
         ++bucketIdProvider.id;
         distribution.add(2);
         distribution.add(3);
-        assertPreviousDistribution(distribution, 1, 1, 1);
+        assertPreviousDistribution(distribution, 1, 1, 1, 1);
         ++bucketIdProvider.id;
-        assertPreviousDistribution(distribution, 2, 2, 3);
+        assertPreviousDistribution(distribution, 2, 2, 3, 5);
     }
 
     @Test
@@ -56,13 +55,13 @@ public class TestBucketedDistribution
         ++bucketIdProvider.id;
         distribution.add(2);
         distribution.add(3);
-        assertPreviousDistribution(distribution, 1, 1, 1);
+        assertPreviousDistribution(distribution, 1, 1, 1, 1);
         ++bucketIdProvider.id;
         ++bucketIdProvider.id;
         distribution.add(100);
         assertPreviousDistributionEmpty(distribution);
         ++bucketIdProvider.id;
-        assertPreviousDistribution(distribution, 1, 100, 100);
+        assertPreviousDistribution(distribution, 1, 100, 100, 100);
         distribution.add(200);
         ++bucketIdProvider.id;
         ++bucketIdProvider.id;
@@ -72,10 +71,10 @@ public class TestBucketedDistribution
     private void assertPreviousDistributionEmpty(BucketedDistribution distribution)
             throws Exception
     {
-        assertPreviousDistribution(distribution, 0, Long.MAX_VALUE, Long.MIN_VALUE);
+        assertPreviousDistribution(distribution, 0, Long.MAX_VALUE, Long.MIN_VALUE, 0);
     }
 
-    private void assertPreviousDistribution(BucketedDistribution distribution, int expectedCount, long expectedMin, long expectedMax)
+    private void assertPreviousDistribution(BucketedDistribution distribution, int expectedCount, long expectedMin, long expectedMax, long expectedTotal)
             throws Exception
     {
         Method method = Bucketed.class.getDeclaredMethod("getPreviousBucket");
@@ -84,17 +83,6 @@ public class TestBucketedDistribution
         assertEquals(previousBucket.getCount(), (double) expectedCount);
         assertEquals(previousBucket.getMin(), expectedMin);
         assertEquals(previousBucket.getMax(), expectedMax);
-    }
-
-    private static class TestingBucketIdProvider
-        implements BucketIdProvider
-    {
-        private int id = 0;
-
-        @Override
-        public int get()
-        {
-            return id;
-        }
+        assertEquals(previousBucket.getTotal(), expectedTotal);
     }
 }

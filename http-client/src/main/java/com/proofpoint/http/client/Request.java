@@ -16,7 +16,6 @@
 package com.proofpoint.http.client;
 
 import com.google.common.annotations.Beta;
-import com.google.common.base.Objects;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ListMultimap;
@@ -24,8 +23,9 @@ import com.google.common.collect.ListMultimap;
 import java.net.URI;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Objects;
 
-import static com.google.common.base.Objects.equal;
+import static com.google.common.base.Objects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -36,8 +36,13 @@ public class Request
     private final String method;
     private final ListMultimap<String, String> headers;
     private final BodyGenerator bodyGenerator;
+    private final boolean followRedirects;
 
     public Request(URI uri, String method, ListMultimap<String, String> headers, BodyGenerator bodyGenerator)
+    {
+        this(uri, method, headers, bodyGenerator, false);
+    }
+    public Request(URI uri, String method, ListMultimap<String, String> headers, BodyGenerator bodyGenerator, boolean followRedirects)
     {
         checkNotNull(uri, "uri is null");
         checkNotNull(method, "method is null");
@@ -46,6 +51,7 @@ public class Request
         this.method = method;
         this.headers = ImmutableListMultimap.copyOf(headers);
         this.bodyGenerator = bodyGenerator;
+        this.followRedirects = followRedirects;
     }
 
     public static Request.Builder builder()
@@ -82,34 +88,41 @@ public class Request
         return bodyGenerator;
     }
 
+    public boolean isFollowRedirects()
+    {
+        return followRedirects;
+    }
+
     @Override
     public String toString()
     {
-        return Objects.toStringHelper(this)
+        return toStringHelper(this)
                 .add("uri", uri)
                 .add("method", method)
                 .add("headers", headers)
                 .add("bodyGenerator", bodyGenerator)
+                .add("followRedirects", followRedirects)
                 .toString();
-    }
-
-    @Override
-    public boolean equals(Object o)
-    {
-        if (!(o instanceof Request)) {
-            return false;
-        }
-        Request r = (Request) o;
-        return equal(uri, r.uri) &&
-                equal(method, r.method) &&
-                equal(headers, r.headers) &&
-                equal(bodyGenerator, r.bodyGenerator);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hashCode(uri, method, headers, bodyGenerator);
+        return Objects.hash(uri, method, headers, bodyGenerator, followRedirects);
+    }
+
+    @Override
+    public boolean equals(Object obj)
+    {
+        if (!(obj instanceof Request)) {
+            return false;
+        }
+        final Request other = (Request) obj;
+        return Objects.equals(this.uri, other.uri) &&
+                Objects.equals(this.method, other.method) &&
+                Objects.equals(this.headers, other.headers) &&
+                Objects.equals(this.bodyGenerator, other.bodyGenerator) &&
+                Objects.equals(this.followRedirects, other.followRedirects);
     }
 
     @Beta
@@ -146,6 +159,7 @@ public class Request
             requestBuilder.setMethod(request.getMethod());
             requestBuilder.setBodyGenerator(request.getBodyGenerator());
             requestBuilder.setUri(request.getUri());
+            requestBuilder.setFollowRedirects(request.isFollowRedirects());
 
             for (Entry<String, String> entry : request.getHeaders().entries()) {
                 requestBuilder.addHeader(entry.getKey(), entry.getValue());
@@ -157,6 +171,7 @@ public class Request
         private String method;
         private final ListMultimap<String, String> headers = ArrayListMultimap.create();
         private BodyGenerator bodyGenerator;
+        private boolean followRedirects = false;
 
         public Builder setUri(URI uri)
         {
@@ -189,9 +204,15 @@ public class Request
             return this;
         }
 
+        public Builder setFollowRedirects(boolean followRedirects)
+        {
+            this.followRedirects = followRedirects;
+            return this;
+        }
+
         public Request build()
         {
-            return new Request(uri, method, headers, bodyGenerator);
+            return new Request(uri, method, headers, bodyGenerator, followRedirects);
         }
     }
 

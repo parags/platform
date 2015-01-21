@@ -18,6 +18,7 @@ package com.proofpoint.node.testing;
 import com.google.common.base.Optional;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.proofpoint.node.ApplicationNameModule;
 import com.proofpoint.node.NodeInfo;
 import org.testng.annotations.Test;
 
@@ -35,10 +36,11 @@ public class TestTestingNodeModule
     {
         long testStartTime = System.currentTimeMillis();
 
-        Injector injector = Guice.createInjector(new TestingNodeModule());
+        Injector injector = Guice.createInjector(new TestingNodeModule(), new ApplicationNameModule("test-application"));
         NodeInfo nodeInfo = injector.getInstance(NodeInfo.class);
 
         assertNotNull(nodeInfo);
+        assertEquals(nodeInfo.getApplication(), "test-application");
         assertTrue(nodeInfo.getEnvironment().matches("test\\d+"));
         assertEquals(nodeInfo.getPool(), "general");
         assertNotNull(nodeInfo.getNodeId());
@@ -49,6 +51,10 @@ public class TestTestingNodeModule
 
         assertNotEquals(nodeInfo.getNodeId(), nodeInfo.getInstanceId());
 
+        assertEquals(nodeInfo.getInternalIp().toString(), "localhost/127.0.0.1");
+        assertEquals(nodeInfo.getBindIp(), nodeInfo.getInternalIp());
+        assertEquals(nodeInfo.getExternalAddress(), "127.0.0.1");
+
         assertGreaterThanOrEqual(nodeInfo.getStartTime(), testStartTime);
 
         // make sure toString doesn't throw an exception
@@ -58,7 +64,7 @@ public class TestTestingNodeModule
     @Test
     public void testTestingNodeExplicitEnvironment()
     {
-        Injector injector = Guice.createInjector(new TestingNodeModule("foo"));
+        Injector injector = Guice.createInjector(new TestingNodeModule("foo"), new ApplicationNameModule("test-application"));
         NodeInfo nodeInfo = injector.getInstance(NodeInfo.class);
 
         assertNotNull(nodeInfo);
@@ -68,7 +74,7 @@ public class TestTestingNodeModule
     @Test
     public void testTestingNodePresentEnvironment()
     {
-        Injector injector = Guice.createInjector(new TestingNodeModule(Optional.of("foo")));
+        Injector injector = Guice.createInjector(new TestingNodeModule(Optional.of("foo")), new ApplicationNameModule("test-application"));
         NodeInfo nodeInfo = injector.getInstance(NodeInfo.class);
 
         assertNotNull(nodeInfo);
@@ -78,7 +84,7 @@ public class TestTestingNodeModule
     @Test
     public void testTestingNodeAbsentEnvironment()
     {
-        Injector injector = Guice.createInjector(new TestingNodeModule(Optional.<String>absent()));
+        Injector injector = Guice.createInjector(new TestingNodeModule(Optional.<String>absent()), new ApplicationNameModule("test-application"));
         NodeInfo nodeInfo = injector.getInstance(NodeInfo.class);
 
         assertNotNull(nodeInfo);

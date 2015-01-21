@@ -25,18 +25,20 @@ import com.proofpoint.bootstrap.LifeCycleManager;
 import com.proofpoint.event.client.EventClient;
 import com.proofpoint.event.client.InMemoryEventClient;
 import com.proofpoint.event.client.InMemoryEventModule;
-import com.proofpoint.http.client.ApacheHttpClient;
 import com.proofpoint.http.client.HttpClient;
 import com.proofpoint.http.client.StatusResponseHandler.StatusResponse;
+import com.proofpoint.http.client.jetty.JettyHttpClient;
 import com.proofpoint.http.server.testing.TestingHttpServer;
 import com.proofpoint.http.server.testing.TestingHttpServerModule;
-import com.proofpoint.jaxrs.JaxrsModule;
 import com.proofpoint.json.JsonCodec;
 import com.proofpoint.json.JsonModule;
 import com.proofpoint.node.testing.TestingNodeModule;
+import com.proofpoint.reporting.ReportingModule;
+import com.proofpoint.testing.Closeables;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.weakref.jmx.testing.TestingMBeanModule;
 
 import java.io.IOException;
 import java.net.URI;
@@ -46,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+import static com.proofpoint.bootstrap.Bootstrap.bootstrapApplication;
 import static com.proofpoint.http.client.JsonResponseHandler.createJsonResponseHandler;
 import static com.proofpoint.http.client.Request.Builder.prepareDelete;
 import static com.proofpoint.http.client.Request.Builder.prepareGet;
@@ -53,8 +56,10 @@ import static com.proofpoint.http.client.Request.Builder.preparePost;
 import static com.proofpoint.http.client.Request.Builder.preparePut;
 import static com.proofpoint.http.client.StaticBodyGenerator.createStaticBodyGenerator;
 import static com.proofpoint.http.client.StatusResponseHandler.createStatusResponseHandler;
+import static com.proofpoint.jaxrs.JaxrsModule.explicitJaxrsModule;
 import static com.proofpoint.json.JsonCodec.listJsonCodec;
 import static com.proofpoint.json.JsonCodec.mapJsonCodec;
+import static com.proofpoint.platform.sample.Person.createPerson;
 import static com.proofpoint.platform.sample.PersonEvent.personAdded;
 import static com.proofpoint.platform.sample.PersonEvent.personRemoved;
 import static com.proofpoint.testing.Assertions.assertEqualsIgnoreOrder;
@@ -81,16 +86,20 @@ public class TestServer
     public void setup()
             throws Exception
     {
-        Bootstrap app = new Bootstrap(
-                new TestingNodeModule(),
-                new InMemoryEventModule(),
-                new TestingHttpServerModule(),
-                new JsonModule(),
-                new JaxrsModule(),
-                new MainModule());
+        Bootstrap app = bootstrapApplication("test-application")
+                .doNotInitializeLogging()
+                .withModules(
+                        new TestingNodeModule(),
+                        new InMemoryEventModule(),
+                        new TestingHttpServerModule(),
+                        new JsonModule(),
+                        explicitJaxrsModule(),
+                        new ReportingModule(),
+                        new TestingMBeanModule(),
+                        new MainModule()
+                );
 
         Injector injector = app
-                .doNotInitializeLogging()
                 .initialize();
 
         lifeCycleManager = injector.getInstance(LifeCycleManager.class);
@@ -99,15 +108,20 @@ public class TestServer
         store = injector.getInstance(PersonStore.class);
         eventClient = (InMemoryEventClient) injector.getInstance(EventClient.class);
 
-        client = new ApacheHttpClient();
+        client = new JettyHttpClient();
     }
 
     @AfterMethod
     public void teardown()
             throws Exception
     {
-        if (lifeCycleManager != null) {
-            lifeCycleManager.stop();
+        try {
+            if (lifeCycleManager != null) {
+                lifeCycleManager.stop();
+            }
+        }
+        finally {
+            Closeables.closeQuietly(client);
         }
     }
 
@@ -119,15 +133,15 @@ public class TestServer
                 prepareGet().setUri(uriFor("/v1/person")).build(),
                 createJsonResponseHandler(listCodec));
 
-        assertEquals(response, Collections.<Object>emptyList());
+        assertEquals(response, Collections.emptyList());
     }
 
     @Test
     public void testGetAll()
             throws IOException, ExecutionException, InterruptedException
     {
-        store.put("bar", new Person("bar@example.com", "Mr Bar"));
-        store.put("foo", new Person("foo@example.com", "Mr Foo"));
+        store.put("bar", createPerson("bar@example.com", "Mr Bar"));
+        store.put("foo", createPerson("foo@example.com", "Mr Foo"));
 
         List<Object> expected = new ArrayList<>();
         expected.add(ImmutableMap.of("self", uriFor("/v1/person/foo").toString(), "name", "Mr Foo", "email", "foo@example.com"));
@@ -143,7 +157,7 @@ public class TestServer
     public void testGetSingle()
             throws IOException, ExecutionException, InterruptedException
     {
-        store.put("foo", new Person("foo@example.com", "Mr Foo"));
+        store.put("foo", createPerson("foo@example.com", "Mr Foo"));
 
         URI requestUri = uriFor("/v1/person/foo");
 
@@ -173,10 +187,10 @@ public class TestServer
 
         assertEquals(response.getStatusCode(), javax.ws.rs.core.Response.Status.CREATED.getStatusCode());
 
-        assertEquals(store.get("foo"), new Person("foo@example.com", "Mr Foo"));
+        assertEquals(store.get("foo"), createPerson("foo@example.com", "Mr Foo"));
 
         assertEquals(eventClient.getEvents(), ImmutableList.of(
-                personAdded("foo", new Person("foo@example.com", "Mr Foo"))
+                personAdded("foo", createPerson("foo@example.com", "Mr Foo"))
         ));
     }
 
@@ -184,7 +198,7 @@ public class TestServer
     public void testDelete()
             throws IOException, ExecutionException, InterruptedException
     {
-        store.put("foo", new Person("foo@example.com", "Mr Foo"));
+        store.put("foo", createPerson("foo@example.com", "Mr Foo"));
 
         StatusResponse response = client.execute(
                 prepareDelete()
@@ -198,8 +212,8 @@ public class TestServer
         assertNull(store.get("foo"));
 
         assertEquals(eventClient.getEvents(), ImmutableList.of(
-                personAdded("foo", new Person("foo@example.com", "Mr Foo")),
-                personRemoved("foo", new Person("foo@example.com", "Mr Foo"))
+                personAdded("foo", createPerson("foo@example.com", "Mr Foo")),
+                personRemoved("foo", createPerson("foo@example.com", "Mr Foo"))
         ));
     }
 

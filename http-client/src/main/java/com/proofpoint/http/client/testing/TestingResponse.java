@@ -1,6 +1,7 @@
 package com.proofpoint.http.client.testing;
 
 import com.google.common.base.Charsets;
+import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.io.CountingInputStream;
@@ -73,9 +74,25 @@ public class TestingResponse
         return countingInputStream;
     }
 
+    @Override
+    public String toString()
+    {
+        return Objects.toStringHelper(this)
+                .add("statusCode", getStatusCode())
+                .add("statusMessage", getStatusMessage())
+                .add("headers", getHeaders())
+                .toString();
+    }
+
+
     public static ListMultimap<String, String> contentType(MediaType type)
     {
         return ImmutableListMultimap.of(HttpHeaders.CONTENT_TYPE, type.toString());
+    }
+
+    public static Response mockResponse(HttpStatus status)
+    {
+        return new TestingResponse(status, ImmutableListMultimap.<String, String>of(), new byte[0]);
     }
 
     public static Response mockResponse(HttpStatus status, MediaType type, String content)

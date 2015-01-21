@@ -34,6 +34,8 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static com.proofpoint.discovery.client.ServiceTypes.serviceType;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.fail;
@@ -51,7 +53,7 @@ public class TestAnnouncer
     protected void setUp()
             throws Exception
     {
-        nodeInfo = new NodeInfo(new NodeConfig().setEnvironment("test").setPool("pool"));
+        nodeInfo = new NodeInfo("test-application", new NodeConfig().setEnvironment("test").setPool("pool"));
         discoveryClient = new InMemoryDiscoveryClient(nodeInfo, MAX_AGE);
         serviceAnnouncement = ServiceAnnouncement.serviceAnnouncement(serviceType.value()).addProperty("a", "apple").build();
         announcer = new Announcer(discoveryClient, ImmutableSet.of(serviceAnnouncement));
@@ -87,7 +89,7 @@ public class TestAnnouncer
             announcer.start();
             fail("Expected IllegalStateException");
         }
-        catch (IllegalStateException expected) {
+        catch (IllegalStateException ignored) {
         }
     }
 
@@ -115,7 +117,12 @@ public class TestAnnouncer
     public void destroyNoStart()
             throws Exception
     {
+        discoveryClient = spy(discoveryClient);
+        announcer = new Announcer(discoveryClient, ImmutableSet.of(serviceAnnouncement));
+
         announcer.destroy();
+
+        verifyNoMoreInteractions(discoveryClient);
     }
 
     @Test

@@ -19,9 +19,9 @@ import com.google.inject.Binder;
 import com.google.inject.Key;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
-import com.google.inject.multibindings.Multibinder;
 import com.proofpoint.discovery.client.announce.AnnouncementHttpServerInfo;
 import com.proofpoint.http.server.HttpServer;
+import com.proofpoint.http.server.HttpServerBinder.HttpResourceBinding;
 import com.proofpoint.http.server.HttpServerConfig;
 import com.proofpoint.http.server.HttpServerInfo;
 import com.proofpoint.http.server.LocalAnnouncementHttpServerInfo;
@@ -31,17 +31,18 @@ import com.proofpoint.tracetoken.TraceTokenManager;
 
 import javax.servlet.Filter;
 
+import static com.google.inject.multibindings.Multibinder.newSetBinder;
+
 public class TestingHttpServerModule
         implements Module
 {
     @Override
     public void configure(Binder binder)
     {
-        binder.requireExplicitBindings();
         binder.disableCircularProxies();
 
         // Jetty scales required threads based on processor count, so pick a safe number
-        int threads = Math.max(10, Runtime.getRuntime().availableProcessors());
+        int threads = Math.max(200, Runtime.getRuntime().availableProcessors() * 2);
         HttpServerConfig config = new HttpServerConfig().setMinThreads(1).setMaxThreads(threads).setHttpPort(0);
 
         binder.bind(TraceTokenManager.class).in(Scopes.SINGLETON);
@@ -50,7 +51,8 @@ public class TestingHttpServerModule
         binder.bind(TestingHttpServer.class).in(Scopes.SINGLETON);
         binder.bind(HttpServer.class).to(Key.get(TestingHttpServer.class));
         binder.bind(QueryStringFilter.class).in(Scopes.SINGLETON);
-        Multibinder.newSetBinder(binder, Filter.class, TheServlet.class);
+        newSetBinder(binder, Filter.class, TheServlet.class);
+        newSetBinder(binder, HttpResourceBinding.class, TheServlet.class);
         binder.bind(AnnouncementHttpServerInfo.class).to(LocalAnnouncementHttpServerInfo.class);
     }
 }

@@ -15,299 +15,35 @@
  */
 package com.proofpoint.jaxrs;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ForwardingMap;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.ListMultimap;
 import com.google.common.net.HttpHeaders;
-import com.google.common.reflect.TypeToken;
 import com.proofpoint.json.JsonCodec;
+import com.proofpoint.json.ObjectMapperProvider;
 import org.testng.Assert;
-import org.testng.annotations.Test;
+import org.testng.annotations.BeforeMethod;
 
-import javax.validation.constraints.NotNull;
-import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.MultivaluedMap;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.EOFException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.lang.reflect.Type;
-import java.util.List;
-import java.util.Map;
-import java.util.zip.ZipException;
-
-import static com.proofpoint.testing.Assertions.assertEqualsIgnoreOrder;
-import static org.testng.Assert.fail;
 
 public class TestJsonMapper
+    extends AbstractMapperTest<JsonMapper>
 {
-    @Test
-    public void testSuccess()
-            throws IOException
+    @BeforeMethod
+    public void setup()
     {
-        assertRoundTrip("value");
-        assertRoundTrip("<");
-        assertRoundTrip(">");
-        assertRoundTrip("&");
-        assertRoundTrip("<>'&");
+        mapper = new JsonMapper(new ObjectMapperProvider().get());
     }
 
-    private void assertRoundTrip(String value)
-            throws IOException
+    @Override
+    protected void assertEncodedProperly(byte[] encoded, MultivaluedMap<String, Object> headers, String expected)
     {
         JsonCodec<String> jsonCodec = JsonCodec.jsonCodec(String.class);
-        JsonMapper jsonMapper = new JsonMapper(new ObjectMapper(), null);
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-
-        MultivaluedMap<String, Object> headers = GuavaMultivaluedMap.create();
-        jsonMapper.writeTo(value, String.class, null, null, null, headers, outputStream);
-
-        String json = new String(outputStream.toByteArray(), Charsets.UTF_8);
+        String json = new String(encoded, Charsets.UTF_8);
         Assert.assertTrue(!json.contains("<"));
         Assert.assertTrue(!json.contains(">"));
         Assert.assertTrue(!json.contains("'"));
         Assert.assertTrue(!json.contains("&"));
-        Assert.assertEquals(jsonCodec.fromJson(json), value);
+        Assert.assertEquals(jsonCodec.fromJson(json), expected);
 
         Assert.assertEquals(headers.getFirst(HttpHeaders.X_CONTENT_TYPE_OPTIONS), "nosniff");
-    }
-
-    @Test
-    public void testEOFExceptionReturnsJsonMapperParsingException()
-            throws IOException
-    {
-        try {
-            JsonMapper jsonMapper = new JsonMapper(new ObjectMapper(), null);
-            jsonMapper.readFrom(Object.class, Object.class, null, null, null, new InputStream()
-            {
-                @Override
-                public int read()
-                        throws IOException
-                {
-                    throw new EOFException("forced EOF Exception");
-                }
-
-                @Override
-                public int read(byte[] b)
-                        throws IOException
-                {
-                    throw new EOFException("forced EOF Exception");
-                }
-
-                @Override
-                public int read(byte[] b, int off, int len)
-                        throws IOException
-                {
-                    throw new EOFException("forced EOF Exception");
-                }
-            });
-            fail("Should have thrown a JsonMapperParsingException");
-        }
-        catch (JsonMapperParsingException e) {
-            Assert.assertTrue((e.getMessage()).startsWith("Invalid json for Java type"));
-        }
-    }
-
-    @Test
-    public void testJsonProcessingExceptionThrowsJsonMapperParsingException()
-            throws IOException
-    {
-        try {
-            JsonMapper jsonMapper = new JsonMapper(new ObjectMapper(), null);
-            jsonMapper.readFrom(Object.class, Object.class, null, null, null, new InputStream()
-            {
-                @Override
-                public int read()
-                        throws IOException
-                {
-                    throw new TestingJsonProcessingException("forced JsonProcessingException");
-                }
-
-                @Override
-                public int read(byte[] b)
-                        throws IOException
-                {
-                    throw new TestingJsonProcessingException("forced JsonProcessingException");
-                }
-
-                @Override
-                public int read(byte[] b, int off, int len)
-                        throws IOException
-                {
-                    throw new TestingJsonProcessingException("forced JsonProcessingException");
-                }
-            });
-            fail("Should have thrown a JsonMapperParsingException");
-        }
-        catch (JsonMapperParsingException e) {
-            Assert.assertTrue((e.getMessage()).startsWith("Invalid json for Java type"));
-        }
-    }
-
-    @Test(expectedExceptions = IOException.class)
-    public void testOtherIOExceptionThrowsIOException()
-            throws IOException
-    {
-        try {
-            JsonMapper jsonMapper = new JsonMapper(new ObjectMapper(), null);
-            jsonMapper.readFrom(Object.class, Object.class, null, null, null, new InputStream()
-            {
-                @Override
-                public int read()
-                        throws IOException
-                {
-                    throw new ZipException("forced ZipException");
-                }
-
-                @Override
-                public int read(byte[] b)
-                        throws IOException
-                {
-                    throw new ZipException("forced ZipException");
-                }
-
-                @Override
-                public int read(byte[] b, int off, int len)
-                        throws IOException
-                {
-                    throw new ZipException("forced ZipException");
-                }
-            });
-            fail("Should have thrown an IOException");
-        }
-        catch (WebApplicationException e) {
-            fail("Should not have received an IOException", e);
-        }
-    }
-
-    @Test
-    public void testBeanValidationThrowsBeanValidationException() throws IOException
-    {
-        try {
-            JsonMapper jsonMapper = new JsonMapper(new ObjectMapper(), null);
-            InputStream is = new ByteArrayInputStream("{}".getBytes());
-            jsonMapper.readFrom(Object.class, JsonClass.class, null, null, null, is);
-            fail("Should have thrown an BeanValidationException");
-        }
-        catch (BeanValidationException e) {
-            assertEqualsIgnoreOrder(e.getErrorMessages(), ImmutableList.of(
-                    "secondField may not be null",
-                    "firstField may not be null"
-            ));
-        }
-    }
-
-    @Test
-    public void testBeanValidationOfListThrowsBeanValidationException() throws IOException
-    {
-        try {
-            JsonMapper jsonMapper = new JsonMapper(new ObjectMapper(), null);
-            InputStream is = new ByteArrayInputStream("[{}]".getBytes());
-            Type listJsonClassType = new TypeToken<List<JsonClass>>()
-            {
-            }.getType();
-            jsonMapper.readFrom(Object.class, listJsonClassType, null, null, null, is);
-            fail("Should have thrown an BeanValidationException");
-        }
-        catch (BeanValidationException e) {
-            assertEqualsIgnoreOrder(e.getErrorMessages(), ImmutableList.of(
-                    "list[0].secondField may not be null",
-                    "list[0].firstField may not be null"
-            ));
-        }
-    }
-
-    @Test
-    public void testBeanValidationOfMapThrowsBeanValidationException() throws IOException
-    {
-        try {
-            JsonMapper jsonMapper = new JsonMapper(new ObjectMapper(), null);
-            InputStream is = new ByteArrayInputStream("{\"foo\":{}}".getBytes());
-            Type mapJsonClassType = new TypeToken<Map<String, JsonClass>>()
-            {
-            }.getType();
-            jsonMapper.readFrom(Object.class, mapJsonClassType, null, null, null, is);
-            fail("Should have thrown an BeanValidationException");
-        }
-        catch (BeanValidationException e) {
-            assertEqualsIgnoreOrder(e.getErrorMessages(), ImmutableList.of(
-                    "map[foo].secondField may not be null",
-                    "map[foo].firstField may not be null"
-            ));
-        }
-    }
-
-    private static class TestingJsonProcessingException extends JsonProcessingException
-    {
-        public TestingJsonProcessingException(String message)
-        {
-            super(message);
-        }
-    }
-
-    public static class JsonClass
-    {
-        @NotNull
-        private String firstField;
-
-        @NotNull
-        private String secondField;
-
-        @JsonCreator
-        private JsonClass(@JsonProperty("firstField") String firstField, @JsonProperty("secondField") String secondField)
-        {
-            this.firstField = firstField;
-            this.secondField = secondField;
-        }
-    }
-    static class GuavaMultivaluedMap<K, V> extends ForwardingMap<K, List<V>>
-                implements MultivaluedMap<K, V>
-    {
-        private final ListMultimap<K, V> multimap;
-
-        static <K, V> GuavaMultivaluedMap<K, V> create()
-        {
-            return new GuavaMultivaluedMap<>(ArrayListMultimap.<K, V>create());
-        }
-
-        private GuavaMultivaluedMap(ListMultimap<K, V> multimap)
-        {
-            this.multimap = multimap;
-        }
-
-        @Override
-        public void putSingle(K key, V value)
-        {
-            multimap.removeAll(key);
-            multimap.put(key, value);
-        }
-
-        @Override
-        @SuppressWarnings({"RedundantCast"})
-        protected Map<K, List<V>> delegate()
-        {
-            // forced cast
-            return (Map<K, List<V>>) (Object) multimap.asMap();
-        }
-
-        @Override
-        public void add(K key, V value)
-        {
-            multimap.put(key, value);
-        }
-
-        @Override
-        public V getFirst(K key)
-        {
-            return Iterables.getFirst(multimap.get(key), null);
-        }
     }
 }

@@ -16,49 +16,56 @@
 package com.proofpoint.reporting;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonEncoding;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
 import com.google.inject.Inject;
+import com.proofpoint.http.client.BodyGenerator;
 import com.proofpoint.http.client.HttpClient;
 import com.proofpoint.http.client.Request;
 import com.proofpoint.http.client.StatusResponseHandler.StatusResponse;
-import com.proofpoint.json.JsonCodec;
 import com.proofpoint.log.Logger;
 import com.proofpoint.node.NodeInfo;
 
 import javax.management.ObjectName;
+import java.io.OutputStream;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPOutputStream;
 
+import static com.google.common.base.CaseFormat.LOWER_CAMEL;
+import static com.google.common.base.CaseFormat.UPPER_CAMEL;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.proofpoint.http.client.HttpUriBuilder.uriBuilderFrom;
-import static com.proofpoint.http.client.JsonBodyGenerator.jsonBodyGenerator;
 import static com.proofpoint.http.client.Request.Builder.preparePost;
 import static com.proofpoint.http.client.StatusResponseHandler.createStatusResponseHandler;
-import static com.proofpoint.json.JsonCodec.listJsonCodec;
 
 class ReportClient
 {
     private static final Logger logger = Logger.get(ReportClient.class);
-    private static final JsonCodec<List<DataPoint>> dataPointListCodec = listJsonCodec(DataPoint.class);
+    private static final JsonFactory JSON_FACTORY = new JsonFactory();
+    private static final URI UPLOAD_URI = URI.create("api/v1/datapoints");
     private final Map<String, String> instanceTags;
     private final HttpClient httpClient;
-    private final URI uploadUri;
+    private final ObjectMapper objectMapper;
+    private final boolean enabled;
 
     @Inject
-    ReportClient(NodeInfo nodeInfo, @ForReportClient HttpClient httpClient, ReportClientConfig reportClientConfig)
+    ReportClient(NodeInfo nodeInfo, @ForReportClient HttpClient httpClient, ReportClientConfig reportClientConfig, ObjectMapper objectMapper)
     {
+        this.objectMapper = objectMapper;
         checkNotNull(nodeInfo, "nodeInfo is null");
         checkNotNull(reportClientConfig, "reportClientConfig is null");
 
         Builder<String, String> builder = ImmutableMap.builder();
+        builder.put("application", nodeInfo.getApplication());
         builder.put("host", nodeInfo.getInternalHostname());
         builder.put("environment", nodeInfo.getEnvironment());
         builder.put("pool", nodeInfo.getPool());
@@ -66,35 +73,28 @@ class ReportClient
         this.instanceTags = builder.build();
 
         this.httpClient = checkNotNull(httpClient, "httpClient is null");
-
-        if (reportClientConfig.getUri() == null) {
-            uploadUri = null;
-        }
-        else {
-            uploadUri = uriBuilderFrom(reportClientConfig.getUri())
-                    .appendPath("api/v1/datapoints")
-                    .build();
-        }
+        enabled = reportClientConfig.isEnabled();
     }
 
-    public void report(long systemTimeMillis, Table<ObjectName, String, Number> collectedData)
+    public void report(long systemTimeMillis, Table<ObjectName, String, Object> collectedData)
     {
-        if (uploadUri == null) {
+        if (!enabled) {
             return;
         }
 
-        List<DataPoint> dataPoints = new ArrayList<>();
-        for (Cell<ObjectName, String, Number> cell : collectedData.cellSet()) {
-            dataPoints.add(new DataPoint(systemTimeMillis, cell, instanceTags));
-        }
-
         Request request = preparePost()
-                .setUri(uploadUri)
-                .setBodyGenerator(jsonBodyGenerator(dataPointListCodec, dataPoints))
+                .setUri(UPLOAD_URI)
+                .setHeader("Content-Type", "application/gzip")
+                .setBodyGenerator(new CompressBodyGenerator(systemTimeMillis, collectedData))
                 .build();
-        StatusResponse response = httpClient.execute(request, createStatusResponseHandler());
-        if (response.getStatusCode() != 204) {
-            logger.warn("Failed to report stats: %s %s", response.getStatusCode(), response.getStatusMessage());
+        try {
+            StatusResponse response = httpClient.execute(request, createStatusResponseHandler());
+            if (response.getStatusCode() != 204) {
+                logger.warn("Failed to report stats: %s %s", response.getStatusCode(), response.getStatusMessage());
+            }
+        }
+        catch (RuntimeException e) {
+            logger.warn(e, "Exception when trying to report stats");
         }
     }
 
@@ -102,34 +102,94 @@ class ReportClient
     {
         private static final Pattern QUOTED_PATTERN = Pattern.compile("\"(.*)\"");
         private static final Pattern BACKQUOTE_PATTERN = Pattern.compile("\\\\(.)");
+        private static final Pattern NOT_ACCEPTED_CHARACTER_PATTERN = Pattern.compile("[^-A-Za-z0-9./_]");
         @JsonProperty
         private final String name;
         @JsonProperty
         private final long timestamp;
         @JsonProperty
-        private final Number value;
+        private final String type;
+        @JsonProperty
+        private final Object value;
         @JsonProperty
         private final Map<String, String> tags;
 
-        public DataPoint(long systemTimeMillis, Cell<ObjectName, String, Number> cell, Map<String, String> instanceTags)
+        public DataPoint(long systemTimeMillis, Cell<ObjectName, String, Object> cell, Map<String, String> instanceTags)
         {
-            name = cell.getColumnKey();
+            Map<String,String> propertyList = cell.getRowKey().getKeyPropertyList();
+
+            StringBuilder nameBuilder = new StringBuilder();
+            if (propertyList.containsKey("type")) {
+                nameBuilder.append(LOWER_CAMEL.to(UPPER_CAMEL, dequote(propertyList.get("type"))))
+                        .append(".");
+            }
+            if (propertyList.containsKey("name")) {
+                nameBuilder.append(LOWER_CAMEL.to(UPPER_CAMEL, dequote(propertyList.get("name"))))
+                        .append(".");
+            }
+            nameBuilder.append(cell.getColumnKey());
+            name = NOT_ACCEPTED_CHARACTER_PATTERN.matcher(nameBuilder.toString()).replaceAll("_");
+
             timestamp = systemTimeMillis;
             value = cell.getValue();
+            if (value instanceof Number) {
+                type = null;
+            } else {
+                type = "string";
+            }
             Builder<String, String> builder = ImmutableMap.<String, String>builder()
-                    .putAll(instanceTags)
-                    .put("package", cell.getRowKey().getDomain());
-            for (Entry<String, String> entry : cell.getRowKey().getKeyPropertyList().entrySet()) {
-                Matcher matcher = QUOTED_PATTERN.matcher(entry.getValue());
-                if (matcher.matches()) {
-                    String dequoted = BACKQUOTE_PATTERN.matcher(matcher.group(1)).replaceAll("$1");
-                    builder.put(entry.getKey(), dequoted);
-                }
-                else {
-                    builder.put(entry.getKey(), entry.getValue());
+                    .putAll(instanceTags);
+            for (Entry<String, String> entry : propertyList.entrySet()) {
+                if (!entry.getKey().equals("type") && !entry.getKey().equals("name")) {
+                    String dequoted = dequote(entry.getValue());
+                    builder.put(entry.getKey(), NOT_ACCEPTED_CHARACTER_PATTERN.matcher(dequoted).replaceAll("_"));
                 }
             }
             tags = builder.build();
+        }
+
+        private static String dequote(String value)
+        {
+            Matcher matcher = QUOTED_PATTERN.matcher(value);
+            String dequoted;
+            if (matcher.matches()) {
+                dequoted = BACKQUOTE_PATTERN.matcher(matcher.group(1)).replaceAll("$1");
+            }
+            else {
+                dequoted = value;
+            }
+            return dequoted;
+        }
+    }
+
+    private class CompressBodyGenerator implements BodyGenerator
+    {
+        private final long systemTimeMillis;
+        private final Table<ObjectName,String,Object> collectedData;
+
+        public CompressBodyGenerator(long systemTimeMillis, Table<ObjectName, String, Object> collectedData)
+        {
+            this.systemTimeMillis = systemTimeMillis;
+            this.collectedData = collectedData;
+        }
+
+        @Override
+        public void write(OutputStream out)
+                throws Exception
+        {
+            GZIPOutputStream gzipOutputStream = new GZIPOutputStream(out);
+            JsonGenerator generator = JSON_FACTORY.createGenerator(gzipOutputStream, JsonEncoding.UTF8)
+                .setCodec(objectMapper);
+
+            generator.writeStartArray();
+
+            for (Cell<ObjectName, String, Object> cell : collectedData.cellSet()) {
+                generator.writeObject(new DataPoint(systemTimeMillis, cell, instanceTags));
+            }
+
+            generator.writeEndArray();
+            generator.flush();
+            gzipOutputStream.finish();
         }
     }
 }

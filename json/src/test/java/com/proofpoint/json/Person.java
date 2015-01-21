@@ -16,13 +16,14 @@
 package com.proofpoint.json;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
+import static com.google.common.base.Objects.toStringHelper;
 import static org.testng.Assert.assertEquals;
 
 public class Person
@@ -97,29 +98,29 @@ public class Person
     }
 
     @Override
+    public int hashCode()
+    {
+        return Objects.hash(name, rocks);
+    }
+
+    @Override
     public boolean equals(Object obj)
     {
         if (this == obj) {
             return true;
         }
-        if ((obj == null) || (getClass() != obj.getClass())) {
+        if (obj == null || getClass() != obj.getClass()) {
             return false;
         }
-        Person o = (Person) obj;
-        return Objects.equal(this.name, o.name) &&
-                Objects.equal(this.rocks, o.rocks);
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return Objects.hashCode(name, rocks);
+        final Person other = (Person) obj;
+        return Objects.equals(this.name, other.name) &&
+                Objects.equals(this.rocks, other.rocks);
     }
 
     @Override
     public String toString()
     {
-        return Objects.toStringHelper(this)
+        return toStringHelper(this)
                 .add("name", name)
                 .add("rocks", rocks)
                 .toString();

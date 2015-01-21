@@ -15,9 +15,9 @@
  */
 package com.proofpoint.log;
 
-import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
+import ch.qos.logback.classic.jul.LevelChangePropagator;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.OutputStreamAppender;
@@ -26,22 +26,25 @@ import ch.qos.logback.core.rolling.RollingFileAppender;
 import ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP;
 import ch.qos.logback.core.rolling.TimeBasedRollingPolicy;
 import ch.qos.logback.core.status.Status;
-import ch.qos.logback.core.status.StatusChecker;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.slf4j.bridge.SLF4JBridgeHandler;
 
 import java.io.File;
-import java.io.FileReader;
+import java.io.FileInputStream;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.Reader;
+import java.io.UnsupportedEncodingException;
 import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Handler;
 import java.util.logging.LogManager;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Initializes the logging subsystem.
@@ -62,6 +65,11 @@ public class Logging
     private static final String LOG_FILE_EXTENSION = ".log";
 
     private static Logging instance;
+
+    public enum Level
+    {
+        DEBUG, INFO, WARN, ERROR
+    }
 
     /**
      * Sets up default logging:
@@ -86,10 +94,15 @@ public class Logging
         // assume SLF4J is bound to logback in the current environment
         context = (LoggerContext) LoggerFactory.getILoggerFactory();
         context.reset();
-        root.setLevel(Level.INFO);
 
-        rewireStdStreams();
+        LevelChangePropagator levelPropagator = new LevelChangePropagator();
+        levelPropagator.setContext(context);
+        context.addListener(levelPropagator);
+
+        root.setLevel(ch.qos.logback.classic.Level.INFO);
+
         redirectJULToSLF4j();
+        rewireStdStreams();
     }
 
     @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
@@ -98,14 +111,18 @@ public class Logging
         redirectSlf4jTo(new NonCloseableOutputStream(System.err));
         log.info("Logging to stderr");
 
-        redirectStdStreamsToSlf4j();
+        redirectStdStreams();
     }
 
     @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
-    private void redirectStdStreamsToSlf4j()
+    private void redirectStdStreams()
     {
-        System.setOut(new PrintStream(new LoggingOutputStream(LoggerFactory.getLogger("stdout")), true));
-        System.setErr(new PrintStream(new LoggingOutputStream(LoggerFactory.getLogger("stderr")), true));
+        try {
+            System.setOut(new PrintStream(new LoggingOutputStream(Logger.get("stdout")), true, "UTF-8"));
+            System.setErr(new PrintStream(new LoggingOutputStream(Logger.get("stderr")), true, "UTF-8"));
+        }
+        catch (UnsupportedEncodingException ignored) {
+        }
     }
 
     private void redirectSlf4jTo(OutputStream stream)
@@ -184,20 +201,27 @@ public class Logging
             throws IOException
     {
         Properties properties = new Properties();
-        try (Reader reader = new FileReader(file)) {
+        try (Reader reader = new InputStreamReader(new FileInputStream(file), UTF_8)) {
             properties.load(reader);
         }
 
         processLevels(properties);
     }
 
+    public void setLevel(String loggerName, Level level)
+    {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(loggerName);
+        logger.setLevel(ch.qos.logback.classic.Level.toLevel(level.toString()));
+    }
+
     private void processLevels(Properties properties)
     {
         for (Map.Entry<Object, Object> entry : properties.entrySet()) {
             String name = entry.getKey().toString();
+            String level = entry.getValue().toString();
 
             ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(name);
-            logger.setLevel(Level.toLevel(entry.getValue().toString()));
+            logger.setLevel(ch.qos.logback.classic.Level.toLevel(level));
         }
     }
 
@@ -247,14 +271,15 @@ public class Logging
         // off console logging, as file logging may be broken due to invalid paths or missing config.
         // If any errors have occurred, log them (to the console, which is guaranteed to be properly set up)
         // and bail out with an exception
+        boolean error = false;
         for (Status status : root.getLoggerContext().getStatusManager().getCopyOfStatusList()) {
             if (status.getLevel() == Status.ERROR) {
                 log.error(status.getMessage());
+                error = true;
             }
         }
 
-        StatusChecker checker = new StatusChecker(root.getLoggerContext());
-        if (checker.getHighestLevel(0) == Status.ERROR) {
+        if (error) {
             throw new RuntimeException("Error initializing logger, aborting");
         }
 

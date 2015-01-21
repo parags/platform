@@ -53,8 +53,9 @@ public class TestHttpServerConfig
                 .setAdminEnabled(true)
                 .setAdminPort(0)
                 .setAdminMinThreads(2)
-                .setAdminMaxThreads(20)
+                .setAdminMaxThreads(200)
                 .setMaxRequestHeaderSize(null)
+                .setShowStackTrace(false)
         );
     }
  
@@ -82,6 +83,7 @@ public class TestHttpServerConfig
                 .put("http-server.admin.threads.min", "3")
                 .put("http-server.admin.threads.max", "4")
                 .put("http-server.max-request-header-size", "32kB")
+                .put("http-server.show-stack-trace", "true")
                 .build();
 
         HttpServerConfig expected = new HttpServerConfig()
@@ -104,7 +106,8 @@ public class TestHttpServerConfig
                 .setAdminEnabled(false)
                 .setAdminPort(3)
                 .setAdminMinThreads(3)
-                .setAdminMaxThreads(4);
+                .setAdminMaxThreads(4)
+                .setShowStackTrace(true);
 
         assertFullMapping(properties, expected);
     }

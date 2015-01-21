@@ -15,7 +15,9 @@
  */
 package com.proofpoint.launcher;
 
+import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.airlift.command.Arguments;
 import io.airlift.command.Cli;
 import io.airlift.command.Command;
@@ -28,9 +30,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.ProcessBuilder.Redirect;
 import java.lang.reflect.Method;
 import java.net.URISyntaxException;
@@ -47,6 +49,7 @@ import java.util.jar.Manifest;
 import static com.google.common.base.Objects.firstNonNull;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+@SuppressFBWarnings(value = "DM_EXIT", justification = "Need to return specific exit codes")
 public class Main
 {
     private static final int STATUS_GENERIC_ERROR = 1;
@@ -227,6 +230,7 @@ public class Main
             execute();
         }
 
+        @SuppressFBWarnings(value = "OS_OPEN_STREAM", justification = "false positive")
         protected void start(List<String> args, boolean daemon)
         {
             PidFile pidFile = new PidFile(pidFilePath);
@@ -243,13 +247,26 @@ public class Main
 
             List<String> javaArgs = new LinkedList<>();
             javaArgs.add("java");
+            javaArgs.add("-server");
+            javaArgs.add("-XX:+UseConcMarkSweepGC");
+            javaArgs.add("-XX:+ExplicitGCInvokesConcurrent");
+            javaArgs.add("-XX:+HeapDumpOnOutOfMemoryError");
+            javaArgs.add("-XX:+AggressiveOpts");
+            javaArgs.add("-XX:+DoEscapeAnalysis");
+            javaArgs.add("-XX:+UseCompressedOops");
+            if (System.getProperty("os.name").startsWith("Windows")) {
+                javaArgs.add("-XX:OnOutOfMemoryError=taskkill /f /pid %p");
+            }
+            else {
+                javaArgs.add("-XX:OnOutOfMemoryError=kill -9 %p");
+            }
 
             if (!new File(configPath).exists()) {
                 System.err.println("Config file is missing: " + configPath);
                 System.exit(STATUS_CONFIG_MISSING);
             }
 
-            try (BufferedReader jvmReader = new BufferedReader(new FileReader(jvmConfigPath))) {
+            try (BufferedReader jvmReader = new BufferedReader(new InputStreamReader(new FileInputStream(jvmConfigPath), Charsets.UTF_8))) {
                 String line;
                 boolean allowSpaces = false;
                 while ((line = jvmReader.readLine()) != null) {
@@ -306,11 +323,20 @@ public class Main
 
             Process child = null;
             try {
-                child = new ProcessBuilder(javaArgs)
+                ProcessBuilder processBuilder = new ProcessBuilder(javaArgs)
                         .directory(new File(dataDir))
-                        .redirectInput(Processes.NULL_FILE)
-                        .redirectOutput(Redirect.INHERIT)
-                        .redirectError(Redirect.INHERIT)
+                        .redirectInput(Processes.NULL_FILE);
+                if (daemon) {
+                    processBuilder = processBuilder
+                            .redirectOutput(Processes.NULL_FILE)
+                            .redirectError(Processes.NULL_FILE);
+                }
+                else {
+                    processBuilder = processBuilder
+                            .redirectOutput(Redirect.INHERIT)
+                            .redirectError(Redirect.INHERIT);
+                }
+                child = processBuilder
                         .start();
             }
             catch (IOException e) {
@@ -351,6 +377,7 @@ public class Main
             System.exit(0);
         }
 
+        @SuppressFBWarnings(value = "OS_OPEN_STREAM", justification = "false positive")
         protected void invokeMain(List<String> args, boolean daemon)
         {
             if (!installPath.equals(dataDir)) {
@@ -368,19 +395,33 @@ public class Main
                 }
             }
 
-            Manifest manifest = null;
+            String mainClassName;
+            JarFile jarFile = null;
             try {
-                manifest = new JarFile(installPath + "/lib/main.jar").getManifest();
-            }
-            catch (IOException e) {
-                System.err.println("Unable to open main jar manifest: " + e + "\n");
-                System.exit(STATUS_GENERIC_ERROR);
-            }
+                Manifest manifest = null;
+                try {
+                    jarFile = new JarFile(installPath + "/lib/main.jar");
+                    manifest = jarFile.getManifest();
+                }
+                catch (IOException e) {
+                    System.err.println("Unable to open main jar manifest: " + e + "\n");
+                    System.exit(STATUS_GENERIC_ERROR);
+                }
 
-            String mainClassName = manifest.getMainAttributes().getValue("Main-Class");
-            if (mainClassName == null) {
-                System.err.println("Unable to get Main-Class attribute from main jar manifest");
-                System.exit(STATUS_GENERIC_ERROR);
+                mainClassName = manifest.getMainAttributes().getValue("Main-Class");
+                if (mainClassName == null) {
+                    System.err.println("Unable to get Main-Class attribute from main jar manifest");
+                    System.exit(STATUS_GENERIC_ERROR);
+                }
+            }
+            finally {
+                try {
+                    if (jarFile != null) {
+                        jarFile.close();
+                    }
+                }
+                catch (IOException ignored) {
+                }
             }
 
             Class<?> mainClass = null;
@@ -407,7 +448,7 @@ public class Main
             try {
                 mainClassMethod.invoke(null, (Object) args.toArray(new String[0]));
             }
-            catch (Exception e) {
+            catch (Throwable e) {
                 System.exit(STATUS_GENERIC_ERROR);
             }
         }
@@ -497,6 +538,7 @@ public class Main
         private static PidFile pidFile = null; // static so it doesn't destruct and drop lock when main thread exits
 
         @Override
+        @SuppressFBWarnings("ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD")
         public void execute()
         {
             pidFile = new PidFile(pidFilePath);
@@ -504,7 +546,7 @@ public class Main
             try {
                 pidFile.indicateStarting();
             }
-            catch (AlreadyRunningException e) {
+            catch (AlreadyRunningError e) {
                 System.err.println(e.getMessage());
                 System.exit(0);
             }
